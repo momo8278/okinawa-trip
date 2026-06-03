@@ -6,7 +6,8 @@
   <title>沖繩旅行計劃 2026</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
 
   <style>
     @keyframes enter {
@@ -58,51 +59,52 @@
       Calendar, Lock, GripVertical, Plane, Ticket, QrCode, CreditCard, Banknote, Map, ChevronDown
     } from 'lucide-react';
 
-    // ── Gun.js 同步層 ────────────────────────────────────────────────
-    // 多個 relay 冗餘 — Gun 會同時連線，任一可用即可同步。
-    // 最穩定的做法是自架 relay（見檔案說明），再把網址加到清單最前面。
-    const GUN_PEERS = [
-      'https://relay.peer.ooo/gun',
-      'https://peer.wallie.io/gun',
-      'https://gun-manhattan.herokuapp.com/gun',
-    ];
+    // ── Firebase Realtime Database 同步層 ────────────────────────────
+    // ★ 請填入你的 Firebase 專案設定
+    //   （Firebase Console → 專案設定 → 一般 → 你的應用程式 → SDK 設定與配置）
+    const firebaseConfig = {
+      apiKey:            "AIzaSyDSp2clYnTev-2b1A_XK8E_YaAmaq2_SGs",
+      authDomain:        "okinawa-trip-69ea4.firebaseapp.com",
+      databaseURL:       "https://okinawa-trip-69ea4-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId:         "okinawa-trip-69ea4",
+      storageBucket:     "okinawa-trip-69ea4.firebasestorage.app",
+      messagingSenderId: "657851490589",
+      appId:             "1:657851490589:web:b40c1de29b1083b3c7c1f4"
+    };
+    let fdb = null;
+    try {
+      firebase.initializeApp(firebaseConfig);
+      fdb = firebase.database();
+    } catch (e) { console.warn('Firebase 尚未設定，目前僅本機模式可用：', e.message); }
+
     const ROOM_PREFIX = 'trip26v1-';
+    let roomRef = null;
+    const fbListeners = {}; // key → { ref, handler }
 
-    let gunInstance = null;
-    let roomNode    = null;
-    const gunListeners = {}; // key → unsubscribe fn
-
-    const getGun = () => {
-      if (!gunInstance) gunInstance = Gun(GUN_PEERS);
-      return gunInstance;
-    };
-
-    const joinRoom = (code) => {
-      roomNode = getGun().get(ROOM_PREFIX + code);
-    };
+    const joinRoom = (code) => { if (!fdb) return; roomRef = fdb.ref('rooms/' + ROOM_PREFIX + code); };
 
     const leaveRoom = () => {
-      Object.values(gunListeners).forEach(fn => fn && fn());
-      roomNode = null;
+      Object.values(fbListeners).forEach(l => l && l.ref.off('value', l.handler));
+      Object.keys(fbListeners).forEach(k => delete fbListeners[k]);
+      roomRef = null;
     };
 
-    // 訂閱 Gun 節點，回傳取消訂閱函式
+    // 訂閱房間某個 key（資料以 JSON 字串存放，保留陣列順序）
     const gunSubscribe = (key, cb) => {
-      if (!roomNode) return () => {};
-      const node = roomNode.get(key);
-      // Gun's `.on()` returns a handle we can `.off()` later
-      const handler = (raw) => {
-        if (!raw || typeof raw !== 'string') return;
-        try { cb(JSON.parse(raw)); } catch {}
-      };
-      node.on(handler);
-      gunListeners[key] = () => node.off();
-      return () => { node.off(); delete gunListeners[key]; };
+      if (!roomRef) return () => {};
+      const ref = roomRef.child(key);
+      const handler = ref.on('value', snap => {
+        const v = snap.val();
+        if (v == null) return;
+        try { cb(JSON.parse(v)); } catch {}
+      });
+      fbListeners[key] = { ref, handler };
+      return () => { ref.off('value', handler); delete fbListeners[key]; };
     };
 
     const gunPut = (key, data) => {
-      if (!roomNode) return;
-      roomNode.get(key).put(JSON.stringify(data));
+      if (!roomRef) return;
+      roomRef.child(key).set(JSON.stringify(data));
     };
 
     // ── localStorage 備份 ─────────────────────────────────────────────
@@ -277,13 +279,13 @@
           .catch(() => {});
       }, [settings.currency]);
 
-      // ── Gun 訂閱 ──
+      // ── Firebase 訂閱 ──
       useEffect(() => {
         if (!syncMode || !roomCode) return;
         joinRoom(roomCode);
         setSyncStatus('syncing');
 
-        // 記帳（expenses）不訂閱 Gun — 僅存本機，保有個人隱私
+        // 記帳（expenses）不同步 — 僅存本機，保有個人隱私
         const unsubs = [
           gunSubscribe('itinerary', d => { if (!syncRef.current) { setItinerary(d); lsSet(LS.itinerary, d); } }),
           gunSubscribe('packing',   d => { if (!syncRef.current) { setPackingList(d); lsSet(LS.packing, d); } }),
@@ -293,13 +295,17 @@
           gunSubscribe('funpass',   d => { if (!syncRef.current) { setFunpass(d);   lsSet(LS.funpass,  d); } }),
         ];
 
-        // 標記連線成功（Gun 訂閱後即視為 online，實際是最終一致）
-        const timer = setTimeout(() => setSyncStatus('online'), 2000);
+        // 用 Firebase 內建連線狀態，準確反映 online / 重連中
+        let connRef = null, connHandler = null;
+        if (fdb) {
+          connRef = fdb.ref('.info/connected');
+          connHandler = connRef.on('value', s => setSyncStatus(s.val() ? 'online' : 'syncing'));
+        }
 
         return () => {
           unsubs.forEach(fn => fn());
+          if (connRef) connRef.off('value', connHandler);
           leaveRoom();
-          clearTimeout(timer);
           setSyncStatus('offline');
         };
       }, [syncMode, roomCode]);
@@ -362,8 +368,9 @@
         setPendingJoin({ code: c, checking: true });
         let done = false;
         const finish = (hasData) => { if (!done) { done = true; setPendingJoin({ code: c, hasData }); } };
-        getGun().get(ROOM_PREFIX + c).get('itinerary').once(v => finish(!!v));
-        setTimeout(() => finish(false), 1800); // 逾時視為空房間
+        if (!fdb) { finish(false); return; }
+        fdb.ref('rooms/' + ROOM_PREFIX + c + '/itinerary').once('value', snap => finish(snap.val() != null));
+        setTimeout(() => finish(false), 3000); // 逾時視為空房間
       };
 
       // 建立新房間：代碼為隨機，必為空，直接加入並上傳本機資料
