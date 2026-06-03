@@ -55,7 +55,7 @@
       Sun, CloudLightning, CloudDrizzle, Train, Zap, Fuel, ShieldCheck,
       Baby, ParkingCircle, Hash, ZoomIn, ZoomOut, Maximize2,
       Settings, ImagePlus, Paperclip, Cloud, Link, Copy, Check, Wifi, WifiOff, LogOut,
-      Calendar, Lock, GripVertical
+      Calendar, Lock, GripVertical, Plane, Ticket, QrCode
     } from 'lucide-react';
 
     // ── Gun.js 同步層 ────────────────────────────────────────────────
@@ -106,12 +106,28 @@
     };
 
     // ── localStorage 備份 ─────────────────────────────────────────────
-    const LS = { itinerary:'ok26_i', expenses:'ok26_e', packing:'ok26_p', gifts:'ok26_g', safety:'ok26_s', settings:'ok26_cfg' };
+    const LS = { itinerary:'ok26_i', expenses:'ok26_e', packing:'ok26_p', gifts:'ok26_g', safety:'ok26_s', settings:'ok26_cfg', funpass:'ok26_fp' };
     const lsGet = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
     const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
     const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
     const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
     const fmtDate  = (s) => { if (!s) return '未分類'; const p = s.split('-'); return `${+p[1]}/${+p[2]}`; };
+    const readCompressedImage = (file, cb) => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const img = new Image();
+        img.onload = () => {
+          const c = document.createElement('canvas');
+          let w = img.width, h = img.height; const M = 800;
+          if (w > h && w > M) { h = h * M / w; w = M; } else if (h > M) { w = w * M / h; h = M; }
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          cb(c.toDataURL('image/jpeg', 0.7));
+        };
+        img.src = ev.target.result;
+      };
+      reader.readAsDataURL(file);
+    };
 
     // ── 預設資料 ──────────────────────────────────────────────────────
     const DEFAULT_ITINERARY = [
@@ -203,6 +219,7 @@
       const [packingList, setPackingList] = useState(() => lsGet(LS.packing,   DEFAULT_PACKING));
       const [gifts,       setGifts]       = useState(() => lsGet(LS.gifts,     DEFAULT_GIFTS));
       const [safetyNotes, setSafetyNotes] = useState(() => lsGet(LS.safety,    []));
+      const [funpass,     setFunpass]     = useState(() => lsGet(LS.funpass,   []));
       const [settings,    setSettings]    = useState(() => lsGet(LS.settings,  { title:"沖繩", year:"2026", month:"June", currency:"JPY" }));
       const [exchangeRate,setExchangeRate]= useState(0.21);
       const [weather,     setWeather]     = useState({ temp:'--', code:0 });
@@ -225,6 +242,7 @@
       const [newItem,    setNewItem]    = useState({ name:'', category:'生活' });
       const [newGift,    setNewGift]    = useState('');
       const [newSafety,  setNewSafety]  = useState('');
+      const [newPassName,setNewPassName]= useState('');
       const [convA,      setConvA]      = useState('');
       const [convB,      setConvB]      = useState('');
 
@@ -258,6 +276,7 @@
           gunSubscribe('gifts',     d => { if (!syncRef.current) { setGifts(d);     lsSet(LS.gifts,    d); } }),
           gunSubscribe('safety',    d => { if (!syncRef.current) { setSafetyNotes(d); lsSet(LS.safety, d); } }),
           gunSubscribe('settings',  d => { if (!syncRef.current) { setSettings(d);  lsSet(LS.settings, d); } }),
+          gunSubscribe('funpass',   d => { if (!syncRef.current) { setFunpass(d);   lsSet(LS.funpass,  d); } }),
         ];
 
         // 標記連線成功（Gun 訂閱後即視為 online，實際是最終一致）
@@ -288,6 +307,7 @@
       const saveGifts       = d => save('gifts',     LS.gifts,     setGifts,       d);
       const saveSafety      = d => save('safety',    LS.safety,    setSafetyNotes, d);
       const saveSettings    = d => save('settings',  LS.settings,  setSettings,    d);
+      const saveFunpass     = d => save('funpass',   LS.funpass,   setFunpass,     d);
 
       // ── 加入 / 離開房間 ──
       // 把目前本機資料推送到房間（建立新房間 / 加入空房間時用）
@@ -297,7 +317,18 @@
         gunPut('gifts',     gifts);
         gunPut('safety',    safetyNotes);
         gunPut('settings',  settings);
+        gunPut('funpass',   funpass);
       };
+
+      // ── FunPASS 票券 ──
+      const addPassMember = () => {
+        if (!newPassName.trim()) return;
+        saveFunpass([...funpass, { id: uid(), name: newPassName.trim(), qr: '' }]);
+        setNewPassName('');
+        showToast("已新增旅伴");
+      };
+      const setPassQr = (id, url) => saveFunpass(funpass.map(p => p.id === id ? { ...p, qr: url } : p));
+      const removePassMember = (id) => saveFunpass(funpass.filter(p => p.id !== id));
 
       // 正式加入房間（已確認）。isNew=true 代表空房間，需上傳本機資料當起始
       const enterRoom = (c, isNew) => {
@@ -441,7 +472,7 @@
 
       const saveDayInfo = () => {
         if (!editDayInfo) return;
-        saveItinerary(itinerary.map(d => d.day === editDayInfo.day ? { ...d, title: editDayInfo.title, summary: editDayInfo.summary } : d));
+        saveItinerary(itinerary.map(d => d.day === editDayInfo.day ? { ...d, title: editDayInfo.title, summary: editDayInfo.summary, flight: editDayInfo.flight || {} } : d));
         setEditDayInfo(null);
         showToast("天數資訊已更新");
       };
@@ -551,13 +582,47 @@
                       <span className="text-xs font-bold text-[#5A4D3D] truncate">{itinerary.find(d=>d.day===activeDay)?.title}</span>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <button onClick={() => { const d = itinerary.find(x=>x.day===activeDay); setEditDayInfo({ day:activeDay, title:d?.title||'', summary:d?.summary||'' }); }} className="p-1 text-slate-300 hover:text-[#1B2B5D] transition-colors"><Edit2 size={16}/></button>
+                      <button onClick={() => { const d = itinerary.find(x=>x.day===activeDay); setEditDayInfo({ day:activeDay, title:d?.title||'', summary:d?.summary||'', flight:d?.flight||{} }); }} className="p-1 text-slate-300 hover:text-[#1B2B5D] transition-colors"><Edit2 size={16}/></button>
                       <button onClick={() => setDelDay(activeDay)} className="p-1 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
                       <button onClick={() => setRainyMode(!rainyMode)} className={`p-1 transition-colors ${rainyMode ? 'text-blue-500' : 'text-slate-300'}`}><CloudRain size={16}/></button>
                     </div>
                   </div>
                   <div className="p-4 text-xs text-[#5A4D3D] leading-relaxed italic">★ {itinerary.find(d=>d.day===activeDay)?.summary}</div>
                 </div>
+
+                {(() => {
+                  const f = itinerary.find(d=>d.day===activeDay)?.flight;
+                  if (!f || !f.no) return null;
+                  return (
+                    <div className="rounded-2xl overflow-hidden shadow-lg border border-[#8E1E7E]/20">
+                      <div className="bg-gradient-to-r from-[#8E1E7E] to-[#A82D8E] px-4 py-2 flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-white min-w-0">
+                          <Plane size={14} className="rotate-45 shrink-0"/>
+                          <span className="text-[10px] font-black uppercase tracking-widest shrink-0">{f.label || '航班'}</span>
+                          <span className="text-xs font-bold truncate">{f.no}</span>
+                        </div>
+                        {f.airline && <span className="text-[9px] text-white/70 font-bold shrink-0 ml-2 truncate">{f.airline}</span>}
+                      </div>
+                      <div className="bg-white px-4 py-3 flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[9px] text-slate-400 font-bold truncate">{f.depCity}</p>
+                          <p className="text-xs font-black text-[#1B2B5D] tracking-tight">{f.depTime}</p>
+                        </div>
+                        <Plane size={16} className="text-[#A82D8E] rotate-90 shrink-0"/>
+                        <div className="min-w-0 flex-1 text-right">
+                          <p className="text-[9px] text-slate-400 font-bold truncate">{f.arrCity}</p>
+                          <p className="text-xs font-black text-[#1B2B5D] tracking-tight">{f.arrTime}</p>
+                        </div>
+                      </div>
+                      {(f.pnr || f.qr) && (
+                        <div className="bg-[#FDFBF7] px-4 py-2 flex items-center justify-between border-t border-dashed border-[#E9E1D3]">
+                          {f.pnr ? <div className="flex items-center gap-1.5"><span className="text-[8px] text-slate-400 font-black uppercase tracking-widest">訂位</span><span className="text-xs font-black text-[#8E1E7E] tracking-widest select-all">{f.pnr}</span></div> : <span/>}
+                          {f.qr && <button onClick={()=>setAttachment(f.qr)} className="bg-[#8E1E7E] text-white text-[10px] px-3 py-1 rounded-lg flex items-center gap-1 font-bold active:scale-95 shadow-sm"><Paperclip size={11}/> 登機 QR</button>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="relative pl-8 space-y-8 before:content-[''] before:absolute before:left-[15px] before:top-4 before:bottom-4 before:w-[2px] before:border-l-2 before:border-dashed before:border-[#E2D8C7]">
                   {todaySpots.map((spot, idx) => (
@@ -782,6 +847,58 @@
                 </div>
               </div>
             )}
+
+            {/* FunPASS 票券 */}
+            {activeTab === 'funpass' && (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                <div className="bg-gradient-to-br from-[#8E1E7E] to-[#1B2B5D] p-5 rounded-[2rem] text-white shadow-2xl">
+                  <h3 className="font-serif font-bold text-xl mb-1 uppercase tracking-tight italic text-amber-50 font-black flex items-center gap-2 leading-none"><Ticket size={22}/> FUN PASS</h3>
+                  <p className="text-[10px] opacity-70 leading-relaxed mt-2">每位旅伴的票券 QR Code，點圖可放大掃描。資料同步給所有旅伴共用備份。</p>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-[#E9E1D3] p-3 shadow-sm flex gap-2">
+                  <input type="text" placeholder="新增旅伴姓名..." className="flex-1 bg-[#F8F3E9] p-3 rounded-2xl text-xs outline-none font-bold border border-transparent focus:border-[#8E1E7E]" value={newPassName} onChange={e=>setNewPassName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addPassMember()}/>
+                  <button onClick={addPassMember} className="bg-[#8E1E7E] text-white p-3 rounded-2xl active:scale-95 shadow-md transition-transform"><Plus size={22}/></button>
+                </div>
+
+                {funpass.length === 0 && (
+                  <div className="text-center py-10 text-slate-300">
+                    <QrCode size={40} className="mx-auto mb-2 opacity-40"/>
+                    <p className="text-xs font-bold">尚無票券，新增旅伴後上傳 QR</p>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  {funpass.map(p => (
+                    <div key={p.id} className="bg-white rounded-2xl border border-[#E9E1D3] shadow-sm overflow-hidden">
+                      <div className="bg-[#F8F3E9] px-3 py-2 flex items-center justify-between border-b border-[#E9E1D3]">
+                        <span className="text-xs font-black text-[#5A4D3D] truncate">{p.name}</span>
+                        <button onClick={()=>removePassMember(p.id)} className="text-slate-300 hover:text-red-500 p-0.5 shrink-0"><Trash2 size={13}/></button>
+                      </div>
+                      <div className="p-3 flex items-center justify-center aspect-square bg-white">
+                        {p.qr ? (
+                          <button onClick={()=>setAttachment(p.qr)} className="w-full h-full flex items-center justify-center active:scale-95 transition-transform">
+                            <img src={p.qr} alt={p.name} className="max-w-full max-h-full object-contain rounded-lg"/>
+                          </button>
+                        ) : (
+                          <label className="w-full h-full border-2 border-dashed border-[#E9E1D3] rounded-xl flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#8E1E7E] text-slate-300">
+                            <ImagePlus size={24}/>
+                            <span className="text-[9px] font-bold">上傳 QR</span>
+                            <input type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files[0]; if(!f)return; readCompressedImage(f, url=>setPassQr(p.id, url));}}/>
+                          </label>
+                        )}
+                      </div>
+                      {p.qr && (
+                        <label className="block bg-[#FDFBF7] text-center py-1.5 text-[9px] font-bold text-[#8E1E7E] border-t border-[#E9E1D3] cursor-pointer hover:bg-[#F8F3E9]">
+                          更換 QR
+                          <input type="file" accept="image/*" className="hidden" onChange={e=>{const f=e.target.files[0]; if(!f)return; readCompressedImage(f, url=>setPassQr(p.id, url));}}/>
+                        </label>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </main>
 
           {/* ── 房間 UI 彈窗 ── */}
@@ -880,7 +997,37 @@
                 </div>
                 <div className="space-y-4">
                   <div><label className="text-[10px] font-black text-slate-400 mb-1 block uppercase tracking-widest leading-none">標題</label><input type="text" placeholder="例如：北部探索" className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-sm font-bold outline-none border border-transparent focus:border-[#D1A44B]" value={editDayInfo.title} onChange={e=>setEditDayInfo({...editDayInfo,title:e.target.value})}/></div>
-                  <div><label className="text-[10px] font-black text-slate-400 mb-1 block uppercase tracking-widest leading-none">摘要</label><textarea placeholder="本日行程概述..." className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-xs h-24 outline-none resize-none border border-transparent focus:border-[#D1A44B]" value={editDayInfo.summary} onChange={e=>setEditDayInfo({...editDayInfo,summary:e.target.value})}/></div>
+                  <div><label className="text-[10px] font-black text-slate-400 mb-1 block uppercase tracking-widest leading-none">摘要</label><textarea placeholder="本日行程概述..." className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-xs h-20 outline-none resize-none border border-transparent focus:border-[#D1A44B]" value={editDayInfo.summary} onChange={e=>setEditDayInfo({...editDayInfo,summary:e.target.value})}/></div>
+
+                  <div className="space-y-2 bg-[#FDFBF7] p-3 rounded-2xl border border-[#E9E1D3]">
+                    <label className="text-[10px] font-black text-[#8E1E7E] uppercase tracking-widest leading-none flex items-center gap-1"><Plane size={12}/> 航班資訊 (選填)</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select className="bg-white p-2.5 rounded-xl text-xs font-bold outline-none border border-[#E9E1D3] focus:border-[#8E1E7E] text-[#5A4D3D]" value={editDayInfo.flight?.label||''} onChange={e=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, label:e.target.value}})}>
+                        <option value="">類型</option><option value="去程">去程</option><option value="回程">回程</option><option value="轉機">轉機</option>
+                      </select>
+                      <input type="text" placeholder="航班號 MM922" className="bg-white p-2.5 rounded-xl text-xs font-bold outline-none border border-[#E9E1D3] focus:border-[#8E1E7E]" value={editDayInfo.flight?.no||''} onChange={e=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, no:e.target.value}})}/>
+                    </div>
+                    <input type="text" placeholder="航空公司 樂桃航空" className="w-full bg-white p-2.5 rounded-xl text-xs font-bold outline-none border border-[#E9E1D3] focus:border-[#8E1E7E]" value={editDayInfo.flight?.airline||''} onChange={e=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, airline:e.target.value}})}/>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input type="text" placeholder="出發地 台北(桃園)" className="bg-white p-2.5 rounded-xl text-xs outline-none border border-[#E9E1D3] focus:border-[#8E1E7E]" value={editDayInfo.flight?.depCity||''} onChange={e=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, depCity:e.target.value}})}/>
+                      <input type="text" placeholder="抵達地 沖繩(那霸)" className="bg-white p-2.5 rounded-xl text-xs outline-none border border-[#E9E1D3] focus:border-[#8E1E7E]" value={editDayInfo.flight?.arrCity||''} onChange={e=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, arrCity:e.target.value}})}/>
+                      <input type="text" placeholder="出發 06/05 09:35" className="bg-white p-2.5 rounded-xl text-xs outline-none border border-[#E9E1D3] focus:border-[#8E1E7E]" value={editDayInfo.flight?.depTime||''} onChange={e=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, depTime:e.target.value}})}/>
+                      <input type="text" placeholder="抵達 06/05 12:20" className="bg-white p-2.5 rounded-xl text-xs outline-none border border-[#E9E1D3] focus:border-[#8E1E7E]" value={editDayInfo.flight?.arrTime||''} onChange={e=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, arrTime:e.target.value}})}/>
+                    </div>
+                    <input type="text" placeholder="訂位代號 92GD5H" className="w-full bg-white p-2.5 rounded-xl text-xs font-bold outline-none border border-[#E9E1D3] focus:border-[#8E1E7E] uppercase" value={editDayInfo.flight?.pnr||''} onChange={e=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, pnr:e.target.value}})}/>
+                    {editDayInfo.flight?.qr ? (
+                      <div className="flex items-center gap-2">
+                        <img src={editDayInfo.flight.qr} className="h-12 w-12 object-cover rounded-lg border border-[#E9E1D3]" alt="QR"/>
+                        <button onClick={()=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, qr:''}})} className="text-[10px] text-red-500 font-bold">移除 QR</button>
+                      </div>
+                    ) : (
+                      <label className="w-full bg-white border border-dashed border-[#E9E1D3] rounded-xl py-2.5 text-[10px] font-bold text-slate-400 cursor-pointer hover:border-[#8E1E7E] flex items-center justify-center gap-1">
+                        <ImagePlus size={14}/> 上傳登機 QR 截圖
+                        <input type="file" accept="image/*" className="hidden" onChange={e=>{ const file=e.target.files[0]; if(!file)return; readCompressedImage(file, url=>setEditDayInfo(prev=>({...prev, flight:{...prev.flight, qr:url}}))); }}/>
+                      </label>
+                    )}
+                  </div>
+
                   <button onClick={saveDayInfo} className="w-full bg-[#1B2B5D] text-white font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest leading-none">儲存</button>
                 </div>
               </div>
@@ -955,6 +1102,7 @@
               { id:'lists',     icon:<ListChecks size={18}/>, label:'CHECK' },
               { id:'transport', icon:<Train size={18}/>,      label:'TRANS' },
               { id:'info',      icon:<Info size={18}/>,       label:'TIPS'  },
+              { id:'funpass',   icon:<Ticket size={18}/>,     label:'PASS'  },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                 className={`flex flex-col items-center gap-0.5 transition-all px-1.5 py-1 rounded-xl ${activeTab===tab.id ? 'text-[#1B2B5D] bg-[#1B2B5D]/5' : 'text-[#A69984]'}`}>
