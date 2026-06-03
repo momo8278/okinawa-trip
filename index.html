@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>沖繩旅行計劃 2026</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+
+  <style>
+    @keyframes enter {
+      from {
+        opacity: var(--tw-enter-opacity, 1);
+        transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0)
+          scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), var(--tw-enter-scale, 1));
+      }
+    }
+    .animate-in { animation-name: enter; animation-duration: 300ms; animation-fill-mode: both; --tw-enter-opacity: initial; --tw-enter-scale: initial; --tw-enter-translate-x: initial; --tw-enter-translate-y: initial; }
+    .fade-in { --tw-enter-opacity: 0; }
+    .zoom-in-95 { --tw-enter-scale: .95; }
+    .slide-in-from-bottom-4 { --tw-enter-translate-y: 1rem; }
+    .slide-in-from-right-4  { --tw-enter-translate-x: 1rem; }
+    .slide-in-from-top-4    { --tw-enter-translate-y: -1rem; }
+    .duration-300 { animation-duration: 300ms !important; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    body { margin: 0; background: #f1f5f9; }
+    .font-serif { font-family: Georgia, 'Times New Roman', serif !important; }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "react":             "https://esm.sh/react@18.3.1",
+      "react/jsx-runtime": "https://esm.sh/react@18.3.1/jsx-runtime",
+      "react-dom/client":  "https://esm.sh/react-dom@18.3.1/client?deps=react@18.3.1",
+      "lucide-react":      "https://esm.sh/lucide-react@0.462.0?deps=react@18.3.1"
+    }
+  }
+  </script>
+
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module" data-presets="react">
+    import React, { useState, useEffect, useRef, useCallback } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import {
+      MapPin, CloudRain, Navigation, Wallet, ListChecks, Info, Plus, Trash2, CheckCircle,
+      Circle, Car, RefreshCw, AlertTriangle, TramFront, UtensilsCrossed,
+      Camera, ShoppingBasket, X, Users, Edit2, Hotel,
+      Sun, CloudLightning, CloudDrizzle, Train, Zap, Fuel, ShieldCheck,
+      Baby, ParkingCircle, Hash, ZoomIn, ZoomOut, Maximize2,
+      Settings, ImagePlus, Paperclip, Cloud, Link, Copy, Check, Wifi, WifiOff, LogOut,
+      Calendar, Lock, GripVertical
+    } from 'lucide-react';
+
+    // ── Gun.js 同步層 ────────────────────────────────────────────────
+    // 多個 relay 冗餘 — Gun 會同時連線，任一可用即可同步。
+    // 最穩定的做法是自架 relay（見檔案說明），再把網址加到清單最前面。
+    const GUN_PEERS = [
+      'https://relay.peer.ooo/gun',
+      'https://peer.wallie.io/gun',
+      'https://gun-manhattan.herokuapp.com/gun',
+    ];
+    const ROOM_PREFIX = 'trip26v1-';
+
+    let gunInstance = null;
+    let roomNode    = null;
+    const gunListeners = {}; // key → unsubscribe fn
+
+    const getGun = () => {
+      if (!gunInstance) gunInstance = Gun(GUN_PEERS);
+      return gunInstance;
+    };
+
+    const joinRoom = (code) => {
+      roomNode = getGun().get(ROOM_PREFIX + code);
+    };
+
+    const leaveRoom = () => {
+      Object.values(gunListeners).forEach(fn => fn && fn());
+      roomNode = null;
+    };
+
+    // 訂閱 Gun 節點，回傳取消訂閱函式
+    const gunSubscribe = (key, cb) => {
+      if (!roomNode) return () => {};
+      const node = roomNode.get(key);
+      // Gun's `.on()` returns a handle we can `.off()` later
+      const handler = (raw) => {
+        if (!raw || typeof raw !== 'string') return;
+        try { cb(JSON.parse(raw)); } catch {}
+      };
+      node.on(handler);
+      gunListeners[key] = () => node.off();
+      return () => { node.off(); delete gunListeners[key]; };
+    };
+
+    const gunPut = (key, data) => {
+      if (!roomNode) return;
+      roomNode.get(key).put(JSON.stringify(data));
+    };
+
+    // ── localStorage 備份 ─────────────────────────────────────────────
+    const LS = { itinerary:'ok26_i', expenses:'ok26_e', packing:'ok26_p', gifts:'ok26_g', safety:'ok26_s', settings:'ok26_cfg' };
+    const lsGet = (k, fb) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } };
+    const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+    const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+    const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+    const fmtDate  = (s) => { if (!s) return '未分類'; const p = s.split('-'); return `${+p[1]}/${+p[2]}`; };
+
+    // ── 預設資料 ──────────────────────────────────────────────────────
+    const DEFAULT_ITINERARY = [
+      { day:1, title:"那霸抵達", summary:"取車後前往瀨長島與大型商場，晚間入住美國村", spots:[
+        { id:'d1s1', time:"14:00", name:"那霸機場",  note:"辦理取車，帶駕照正本與譯本", type:"transport", isIndoor:true,  mapcode:"33 123 331*85" },
+        { id:'d1s2', time:"14:30", name:"瀨長島",    note:"純白建築配海景漫步",           type:"view",      isIndoor:false, mapcode:"33 002 602*00" },
+        { id:'d1s3', time:"15:30", name:"PARCO CITY",note:"沖繩大型商場購物",             type:"shopping",  isIndoor:true,  mapcode:"33 339 040*11" },
+        { id:'d1s4', time:"17:00", name:"美國村",    note:"異國風情夕陽與晚餐",           type:"shopping",  isIndoor:false, mapcode:"33 526 450*63" },
+      ]},
+      { day:2, title:"北部探索", summary:"美麗海水族館鯨鯊與名護排隊美食", spots:[
+        { id:'d2s1', time:"09:00", name:"美麗海水族館",  note:"必看大鯨鯊餵食秀",   type:"park",  isIndoor:true,  mapcode:"553 075 797*77", attachment:"https://churaumi.okinawa/tc/userfiles/images/guide/access/tyuusyajyo_tc20250422.png" },
+        { id:'d2s2', time:"12:00", name:"暖暮拉麵 名護店",note:"經典九州豚骨拉麵",  type:"food",  isIndoor:true,  mapcode:"206 657 746*82" },
+        { id:'d2s3', time:"13:00", name:"古宇利島",      note:"過大橋看心型岩",    type:"view",  isIndoor:false, mapcode:"485 692 108*11" },
+        { id:'d2s4', time:"16:00", name:"萬座毛",        note:"珊瑚礁斷崖絕景",   type:"view",  isIndoor:false, mapcode:"206 312 038*55" },
+      ]},
+      { day:3, title:"親子同樂", summary:"殘波岬海景與沖繩兒童王國放電", spots:[
+        { id:'d3s1', time:"09:00", name:"殘波岬燈塔",  note:"壯闊斷崖地景",          type:"view", isIndoor:false, mapcode:"1005 685 296*44" },
+        { id:'d3s2', time:"09:30", name:"沖繩兒童王國",note:"親子動物園與博物館",      type:"park", isIndoor:false, mapcode:"33 592 485*33" },
+        { id:'d3s3', time:"15:00", name:"美國村",      note:"午後補貨與悠閒時光",      type:"shopping", isIndoor:false, mapcode:"33 526 450*63" },
+        { id:'d3s4', time:"18:00", name:"國際通",      note:"那霸熱鬧街區晚餐",        type:"shopping", isIndoor:false, mapcode:"33 157 382*11" },
+      ]},
+      { day:4, title:"文化巡禮", summary:"玉泉洞地底奇觀與那霸購物", spots:[
+        { id:'d4s1', time:"09:00", name:"玉泉洞",              note:"神秘地底鐘乳石洞",   type:"view",     isIndoor:true,  mapcode:"232 495 330*28" },
+        { id:'d4s2', time:"10:00", name:"沖繩世界",            note:"民俗村文化體驗",     type:"park",     isIndoor:false, mapcode:"232 495 330*28" },
+        { id:'d4s3', time:"13:00", name:"西來院達摩寺",        note:"求安產育兒之古寺",   type:"view",     isIndoor:false, mapcode:"33 191 106*33" },
+        { id:'d4s4', time:"14:00", name:"San-A Naha Main Place",note:"在地大型超市百貨",  type:"shopping", isIndoor:true,  mapcode:"33 188 559*22" },
+      ]},
+      { day:5, title:"最後採買", summary:"國際通補貨後前往機場", spots:[
+        { id:'d5s1', time:"10:00", name:"國際通",  note:"藥妝、零食最後補貨",  type:"shopping",  isIndoor:false, mapcode:"33 157 382*11" },
+        { id:'d5s2', time:"13:00", name:"那霸機場",note:"還車並辦理登機",       type:"transport", isIndoor:true,  mapcode:"33 123 331*85" },
+      ]},
+    ];
+    const DEFAULT_PACKING = [
+      { id:uid(), name:"護照",                    category:"文件", checked:false },
+      { id:uid(), name:"台灣駕照正本 (自駕必帶)", category:"文件", checked:false },
+      { id:uid(), name:"日文譯本 (搭配正本使用)", category:"文件", checked:false },
+      { id:uid(), name:"日幣現金",                category:"財務", checked:false },
+      { id:uid(), name:"Suica / ICOCA",           category:"財務", checked:false },
+      { id:uid(), name:"行動電源 (導航很耗電)",   category:"電器", checked:false },
+      { id:uid(), name:"常用隨身藥品",            category:"生活", checked:false },
+      { id:uid(), name:"薄外套 (室內強冷氣)",     category:"生活", checked:false },
+      { id:uid(), name:"兒童安全座椅確認",        category:"親子", checked:false },
+    ];
+    const DEFAULT_GIFTS = [
+      { id:uid(), name:'沖繩泡麵' }, { id:uid(), name:'紅芋塔' },
+      { id:uid(), name:'雪鹽金楚糕' }, { id:uid(), name:'黑糖' }, { id:uid(), name:'風獅爺裝飾' },
+    ];
+
+    const MONORAIL = [
+      { id:1, name:"那霸機場", key:true }, { id:2, name:"赤嶺" }, { id:3, name:"小祿" },
+      { id:4, name:"奧武山公園" }, { id:5, name:"縣廳前", key:true }, { id:6, name:"美榮橋", key:true },
+      { id:7, name:"牧志", key:true }, { id:8, name:"首里", key:true }, { id:9, name:"浦西", key:true },
+    ];
+
+    const CURRENCIES = [
+      { code:'JPY', symbol:'¥', name:'日圓' }, { code:'KRW', symbol:'₩', name:'韓元' },
+      { code:'THB', symbol:'฿', name:'泰銖' }, { code:'HKD', symbol:'HK$', name:'港幣' },
+      { code:'USD', symbol:'$', name:'美金'  }, { code:'EUR', symbol:'€', name:'歐元'  },
+    ];
+
+    const MS_JH = '"Microsoft JhengHei","微軟正黑體",sans-serif';
+
+    const WeatherIcon = ({ code }) => {
+      if (code === 0)  return <Sun size={12} className="text-amber-400" />;
+      if (code < 4)   return <Cloud size={12} className="text-slate-300" />;
+      if (code < 70)  return <CloudDrizzle size={12} className="text-blue-300" />;
+      return <CloudLightning size={12} className="text-indigo-400" />;
+    };
+
+    const SpotIcon = ({ type }) => {
+      const icons = { transport:<TramFront size={16}/>, food:<UtensilsCrossed size={16}/>, shopping:<ShoppingBasket size={16}/>, park:<Car size={16}/>, hotel:<Hotel size={16}/> };
+      return icons[type] || <Camera size={16}/>;
+    };
+
+    // ── 主 App ────────────────────────────────────────────────────────
+    function App() {
+      // ── 房間狀態 ──
+      const [roomCode,    setRoomCode]    = useState(() => window.location.hash.slice(1) || '');
+      const [syncMode,    setSyncMode]    = useState(() => !!window.location.hash.slice(1));
+      const [syncStatus,  setSyncStatus]  = useState('offline'); // offline | syncing | online
+      const [showRoomUI,  setShowRoomUI]  = useState(false);
+      const [codeInput,   setCodeInput]   = useState('');
+      const [copied,      setCopied]      = useState(false);
+
+      // ── 資料狀態 ──
+      const [itinerary,   setItinerary]   = useState(() => lsGet(LS.itinerary, DEFAULT_ITINERARY));
+      const [expenses,    setExpenses]    = useState(() => lsGet(LS.expenses,  []));
+      const [packingList, setPackingList] = useState(() => lsGet(LS.packing,   DEFAULT_PACKING));
+      const [gifts,       setGifts]       = useState(() => lsGet(LS.gifts,     DEFAULT_GIFTS));
+      const [safetyNotes, setSafetyNotes] = useState(() => lsGet(LS.safety,    []));
+      const [settings,    setSettings]    = useState(() => lsGet(LS.settings,  { title:"沖繩", year:"2026", month:"June", currency:"JPY" }));
+      const [exchangeRate,setExchangeRate]= useState(0.21);
+      const [weather,     setWeather]     = useState({ temp:'--', code:0 });
+
+      // ── UI 狀態 ──
+      const [activeTab,  setActiveTab]  = useState('itinerary');
+      const [activeDay,  setActiveDay]  = useState(1);
+      const [rainyMode,  setRainyMode]  = useState(false);
+      const [toast,      setToastMsg]   = useState('');
+      const [showAdd,    setShowAdd]    = useState(false);
+      const [editing,    setEditing]    = useState(null);
+      const [attachment, setAttachment] = useState(null);
+      const [showCfg,    setShowCfg]    = useState(false);
+      const [zoom,       setZoom]       = useState(1);
+      const [delDay,     setDelDay]     = useState(null);
+      const [newSpot,    setNewSpot]    = useState({ time:"10:00", name:'', note:'', isIndoor:false, type:'view', mapcode:'', attachment:'' });
+      const [newExp,     setNewExp]     = useState({ note:'', jpy:'', date: todayStr() });
+      const [editDayInfo,setEditDayInfo]= useState(null);
+      const [dragId,     setDragId]     = useState(null);
+      const [newItem,    setNewItem]    = useState({ name:'', category:'生活' });
+      const [newGift,    setNewGift]    = useState('');
+      const [newSafety,  setNewSafety]  = useState('');
+      const [convA,      setConvA]      = useState('');
+      const [convB,      setConvB]      = useState('');
+
+      const syncRef = useRef(false); // prevent echo on own writes
+
+      const showToast = (msg) => { setToastMsg(msg); setTimeout(() => setToastMsg(''), 2500); };
+
+      // ── 天氣 & 匯率 ──
+      useEffect(() => {
+        fetch('https://api.open-meteo.com/v1/forecast?latitude=26.2124&longitude=127.6809&current_weather=true')
+          .then(r => r.json()).then(d => { if (d.current_weather) setWeather({ temp: Math.round(d.current_weather.temperature), code: d.current_weather.weathercode }); })
+          .catch(() => {});
+      }, []);
+
+      useEffect(() => {
+        fetch(`https://open.er-api.com/v6/latest/${settings.currency}`)
+          .then(r => r.json()).then(d => { if (d.rates?.TWD) setExchangeRate(d.rates.TWD); })
+          .catch(() => {});
+      }, [settings.currency]);
+
+      // ── Gun 訂閱 ──
+      useEffect(() => {
+        if (!syncMode || !roomCode) return;
+        joinRoom(roomCode);
+        setSyncStatus('syncing');
+
+        // 記帳（expenses）不訂閱 Gun — 僅存本機，保有個人隱私
+        const unsubs = [
+          gunSubscribe('itinerary', d => { if (!syncRef.current) { setItinerary(d); lsSet(LS.itinerary, d); } }),
+          gunSubscribe('packing',   d => { if (!syncRef.current) { setPackingList(d); lsSet(LS.packing, d); } }),
+          gunSubscribe('gifts',     d => { if (!syncRef.current) { setGifts(d);     lsSet(LS.gifts,    d); } }),
+          gunSubscribe('safety',    d => { if (!syncRef.current) { setSafetyNotes(d); lsSet(LS.safety, d); } }),
+          gunSubscribe('settings',  d => { if (!syncRef.current) { setSettings(d);  lsSet(LS.settings, d); } }),
+        ];
+
+        // 標記連線成功（Gun 訂閱後即視為 online，實際是最終一致）
+        const timer = setTimeout(() => setSyncStatus('online'), 2000);
+
+        return () => {
+          unsubs.forEach(fn => fn());
+          leaveRoom();
+          clearTimeout(timer);
+          setSyncStatus('offline');
+        };
+      }, [syncMode, roomCode]);
+
+      // ── 統一儲存 helper（localStorage + Gun）──
+      const save = useCallback((key, lsKey, setter, data) => {
+        setter(data);
+        lsSet(lsKey, data);
+        if (syncMode && roomNode) {
+          syncRef.current = true;
+          gunPut(key, data);
+          setTimeout(() => { syncRef.current = false; }, 300);
+        }
+      }, [syncMode]);
+
+      const saveItinerary   = d => save('itinerary', LS.itinerary, setItinerary,   d);
+      const saveExpenses    = d => { setExpenses(d); lsSet(LS.expenses, d); }; // 僅存本機，不同步
+      const savePacking     = d => save('packing',   LS.packing,   setPackingList, d);
+      const saveGifts       = d => save('gifts',     LS.gifts,     setGifts,       d);
+      const saveSafety      = d => save('safety',    LS.safety,    setSafetyNotes, d);
+      const saveSettings    = d => save('settings',  LS.settings,  setSettings,    d);
+
+      // ── 加入 / 離開房間 ──
+      const doJoinRoom = (code) => {
+        const c = code.trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
+        if (!c) return;
+        setRoomCode(c);
+        setSyncMode(true);
+        window.location.hash = c;
+        setShowRoomUI(false);
+        showToast(`已加入房間 ${c}`);
+        // 推送目前本機資料到 Gun（初次加入時）
+        setTimeout(() => {
+          gunPut('itinerary', itinerary);
+          gunPut('packing',   packingList);
+          gunPut('gifts',     gifts);
+          gunPut('safety',    safetyNotes);
+          gunPut('settings',  settings);
+        }, 500);
+      };
+
+      const doCreateRoom = () => {
+        const c = Math.random().toString(36).slice(2, 8);
+        doJoinRoom(c);
+      };
+
+      const doLeaveRoom = () => {
+        leaveRoom();
+        setSyncMode(false);
+        setRoomCode('');
+        window.location.hash = '';
+        setShowRoomUI(false);
+        showToast('已切換為本機模式');
+      };
+
+      const copyLink = () => {
+        const url = window.location.href.split('#')[0] + '#' + roomCode;
+        navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+      };
+
+      // ── 行程操作 ──
+      const addDay = () => {
+        const n = itinerary.length > 0 ? Math.max(...itinerary.map(d => d.day)) + 1 : 1;
+        saveItinerary([...itinerary, { day:n, title:`Day ${n}`, summary:"點擊『ADD STOP』開始規劃", spots:[] }]);
+        setActiveDay(n);
+        showToast(`已新增第 ${n} 天`);
+      };
+
+      const confirmDelDay = () => {
+        const rem = itinerary.filter(d => d.day !== delDay);
+        saveItinerary(rem);
+        setDelDay(null);
+        showToast(`已刪除第 ${delDay} 天`);
+        if (rem.length > 0) setActiveDay(rem[0].day);
+      };
+
+      const addSpot = () => {
+        if (!newSpot.name) return;
+        const ns = { ...newSpot, id:uid() };
+        const updated = itinerary.map(d => {
+          if (d.day !== activeDay) return d;
+          const spots = [...d.spots];
+          let idx = spots.findIndex(s => s.time > ns.time); // 依時間找插入點，之後可手動拖曳
+          if (idx === -1) idx = spots.length;
+          spots.splice(idx, 0, ns);
+          return { ...d, spots };
+        });
+        saveItinerary(updated);
+        setShowAdd(false);
+        setNewSpot({ time:"10:00", name:'', note:'', isIndoor:false, type:'view', mapcode:'', attachment:'' });
+        showToast("行程已新增");
+      };
+
+      const saveEditSpot = () => {
+        if (!editing?.name) return;
+        // 不重新排序，保留目前手動順序
+        const updated = itinerary.map(d => d.day !== activeDay ? d : { ...d, spots: d.spots.map(s => s.id===editing.id ? editing : s) });
+        saveItinerary(updated);
+        setEditing(null);
+        showToast("行程已更新");
+      };
+
+      const deleteSpot = (id) => {
+        saveItinerary(itinerary.map(d => d.day !== activeDay ? d : { ...d, spots: d.spots.filter(s => s.id !== id) }));
+      };
+
+      // ── 拖曳排序 ──
+      const itinRef = useRef(itinerary);
+      useEffect(() => { itinRef.current = itinerary; });
+
+      const commitItinerary = () => {
+        const data = itinRef.current;
+        lsSet(LS.itinerary, data);
+        if (syncMode && roomNode) { syncRef.current = true; gunPut('itinerary', data); setTimeout(() => { syncRef.current = false; }, 300); }
+      };
+
+      const moveSpot = (fromId, toIndex) => setItinerary(prev => {
+        let changed = false;
+        const next = prev.map(d => {
+          if (d.day !== activeDay) return d;
+          const spots = [...d.spots];
+          const from = spots.findIndex(s => s.id === fromId);
+          if (from === -1 || toIndex < 0 || toIndex >= spots.length || from === toIndex) return d;
+          const [m] = spots.splice(from, 1);
+          spots.splice(toIndex, 0, m);
+          changed = true;
+          return { ...d, spots };
+        });
+        return changed ? next : prev;
+      });
+
+      useEffect(() => {
+        if (!dragId) return;
+        const move = (e) => {
+          const rows = Array.from(document.querySelectorAll('[data-spot-row]'));
+          let target = rows.length - 1;
+          for (let i = 0; i < rows.length; i++) {
+            const r = rows[i].getBoundingClientRect();
+            if (e.clientY < r.top + r.height / 2) { target = i; break; }
+          }
+          moveSpot(dragId, target);
+        };
+        const up = () => { commitItinerary(); setDragId(null); };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+        window.addEventListener('pointercancel', up);
+        return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); };
+      }, [dragId, activeDay]);
+
+      // ── 記帳 ──
+      const addExpense = () => {
+        if (!newExp.jpy) return;
+        const cur = CURRENCIES.find(c => c.code === settings.currency) || CURRENCIES[0];
+        saveExpenses([{ id:uid(), note:newExp.note, jpy:parseFloat(newExp.jpy), twd:Math.round(parseFloat(newExp.jpy)*exchangeRate), currency:cur.code, date:newExp.date || todayStr(), time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}), ts:Date.now() }, ...expenses]);
+        setNewExp({ note:'', jpy:'', date: newExp.date });
+        showToast("記帳已新增");
+      };
+
+      const saveDayInfo = () => {
+        if (!editDayInfo) return;
+        saveItinerary(itinerary.map(d => d.day === editDayInfo.day ? { ...d, title: editDayInfo.title, summary: editDayInfo.summary } : d));
+        setEditDayInfo(null);
+        showToast("天數資訊已更新");
+      };
+
+      // ── 清單 ──
+      const handleImageUpload = (e, setFn, cur) => {
+        const file = e.target.files[0]; if (!file) return;
+        showToast("圖片處理中...");
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const img = new Image();
+          img.onload = () => {
+            const c = document.createElement('canvas');
+            let w = img.width, h = img.height, M = 800;
+            if (w > h && w > M) { h=h*M/w; w=M; } else if (h>M) { w=w*M/h; h=M; }
+            c.width=w; c.height=h; c.getContext('2d').drawImage(img,0,0,w,h);
+            setFn({ ...cur, attachment: c.toDataURL('image/jpeg',0.6) });
+            showToast("圖片已附加");
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      };
+
+      const cur = CURRENCIES.find(c => c.code === settings.currency) || CURRENCIES[0];
+      const todaySpots = itinerary.find(d => d.day === activeDay)?.spots || [];
+
+      const expenseGroups = (() => {
+        const g = {};
+        expenses.forEach(e => { const k = e.date || ''; (g[k] = g[k] || []).push(e); });
+        return Object.keys(g).sort((a,b) => b.localeCompare(a)).map(date => ({ date, items: g[date], total: g[date].reduce((s,e)=>s+(e.twd||0),0) }));
+      })();
+
+      // ── 同步狀態標示 ──
+      const SyncBadge = () => {
+        if (!syncMode) return (
+          <button onClick={() => setShowRoomUI(true)} className="flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2 py-1 rounded-full transition-colors">
+            <Cloud size={10} className="text-white/40" />
+            <span className="text-[8px] font-black text-white/40 uppercase tracking-wider">本機</span>
+          </button>
+        );
+        const color = syncStatus === 'online' ? 'text-emerald-400' : 'text-amber-400';
+        const Icon  = syncStatus === 'online' ? Wifi : WifiOff;
+        return (
+          <button onClick={() => setShowRoomUI(true)} className="flex items-center gap-1 bg-white/10 hover:bg-white/20 px-2 py-1 rounded-full transition-colors">
+            <Icon size={9} className={color} />
+            <span className={`text-[8px] font-black uppercase tracking-wider ${color}`}>{roomCode}</span>
+          </button>
+        );
+      };
+
+      return (
+        <div className="flex flex-col h-screen bg-[#FDFBF7] font-sans text-slate-900 max-w-md mx-auto overflow-hidden border-x shadow-2xl relative">
+
+          {/* Toast */}
+          {toast && (
+            <div className="absolute top-24 left-1/2 -translate-x-1/2 z-[1000] bg-black/80 text-white px-5 py-2.5 rounded-full shadow-2xl text-xs font-bold tracking-wider animate-in fade-in slide-in-from-top-4">
+              {toast}
+            </div>
+          )}
+
+          {/* Header */}
+          <header className="bg-[#1B2B5D] text-white p-4 pb-2 shrink-0 shadow-lg z-50">
+            <div className="flex justify-between items-start mb-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <p className="text-[8px] tracking-[0.2em] opacity-40 font-black uppercase">JAPAN TRIP 2026</p>
+                  <SyncBadge />
+                </div>
+                <h1 className="text-2xl font-serif font-bold tracking-tight italic text-amber-50 leading-none">{settings.title}</h1>
+              </div>
+              <div className="flex gap-1.5 shrink-0 items-start">
+                <button onClick={() => setShowCfg(true)} className="p-1 rounded-full bg-white/5 hover:bg-white/10 transition-colors mt-1"><Settings size={16} className="text-amber-200" /></button>
+                <div className="bg-[#2A3F7A] p-1.5 rounded-lg text-center min-w-[55px] border border-white/5 shadow-md flex flex-col items-center justify-center">
+                  <WeatherIcon code={weather.code} />
+                  <p className="text-lg font-serif font-bold leading-none mt-0.5">{weather.temp}°</p>
+                  <p className="text-[7px] opacity-40 uppercase font-black tracking-widest mt-0.5">Local</p>
+                </div>
+                <div className="bg-[#2A3F7A] p-1.5 rounded-lg text-center min-w-[65px] border border-white/10 shadow-lg flex flex-col justify-center">
+                  <p className="text-[8px] opacity-60 uppercase font-black tracking-tighter leading-none">{settings.month}</p>
+                  <p className="text-xl font-serif font-bold leading-none my-0.5">{settings.year}</p>
+                  <p className="text-[8px] opacity-40 font-black tracking-widest uppercase leading-none">{cur.code}</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center overflow-x-auto pb-1.5 gap-1.5 no-scrollbar">
+              {itinerary.map(d => (
+                <button key={d.day} onClick={() => setActiveDay(d.day)}
+                  className={`flex flex-col items-center justify-center min-w-[44px] h-11 rounded-full transition-all border ${activeDay===d.day ? 'bg-[#B91C1C] border-[#B91C1C] text-white shadow-xl scale-105' : 'bg-[#2A3F7A]/50 border-transparent text-white/30'}`}>
+                  <span className="text-[8px] font-black uppercase leading-none mb-0.5">Day</span>
+                  <span className="text-base font-serif font-bold leading-none">{d.day}</span>
+                </button>
+              ))}
+              <button onClick={addDay} className="flex items-center justify-center min-w-[44px] h-11 rounded-full bg-white/10 border border-dashed border-white/20 text-amber-200 active:scale-95 transition-all"><Plus size={20}/></button>
+            </div>
+          </header>
+
+          <main className="flex-1 overflow-y-auto p-5 pb-20 no-scrollbar z-10">
+
+            {/* PLAN */}
+            {activeTab === 'itinerary' && (
+              <div className="space-y-6 animate-in fade-in duration-300">
+                <div className="bg-white border border-[#E9E1D3] rounded-xl shadow-sm overflow-hidden">
+                  <div className="bg-[#F8F3E9] px-4 py-2 border-b border-[#E9E1D3] flex justify-between items-center">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="bg-[#D1A44B] text-white text-[10px] px-2 py-0.5 rounded-full font-bold uppercase shrink-0">Day {activeDay}</span>
+                      <span className="text-xs font-bold text-[#5A4D3D] truncate">{itinerary.find(d=>d.day===activeDay)?.title}</span>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button onClick={() => { const d = itinerary.find(x=>x.day===activeDay); setEditDayInfo({ day:activeDay, title:d?.title||'', summary:d?.summary||'' }); }} className="p-1 text-slate-300 hover:text-[#1B2B5D] transition-colors"><Edit2 size={16}/></button>
+                      <button onClick={() => setDelDay(activeDay)} className="p-1 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
+                      <button onClick={() => setRainyMode(!rainyMode)} className={`p-1 transition-colors ${rainyMode ? 'text-blue-500' : 'text-slate-300'}`}><CloudRain size={16}/></button>
+                    </div>
+                  </div>
+                  <div className="p-4 text-xs text-[#5A4D3D] leading-relaxed italic">★ {itinerary.find(d=>d.day===activeDay)?.summary}</div>
+                </div>
+
+                <div className="relative pl-8 space-y-8 before:content-[''] before:absolute before:left-[15px] before:top-4 before:bottom-4 before:w-[2px] before:border-l-2 before:border-dashed before:border-[#E2D8C7]">
+                  {todaySpots.map((spot, idx) => (
+                    <div key={spot.id} data-spot-row data-index={idx} className={`relative transition-all ${dragId===spot.id ? 'opacity-50 scale-[1.02] z-20' : 'duration-300'} ${!spot.isIndoor && rainyMode ? 'opacity-30 scale-95 origin-left' : ''}`}>
+                      <div className="absolute -left-[30px] top-1 w-8 h-8 rounded-full flex items-center justify-center border-4 border-white shadow-sm bg-[#B91C1C]">
+                        <div className="text-white"><SpotIcon type={spot.type}/></div>
+                      </div>
+                      <div className={`bg-white p-4 rounded-xl border shadow-sm group ${dragId===spot.id ? 'border-[#D1A44B] shadow-xl' : 'border-[#E9E1D3]'}`}>
+                        <div className="flex justify-between items-start mb-1">
+                          <div className="flex items-center gap-1.5">
+                            <button onPointerDown={(e) => { e.preventDefault(); setDragId(spot.id); }} className="text-slate-300 hover:text-[#1B2B5D] cursor-grab active:cursor-grabbing -ml-1 p-0.5" style={{touchAction:'none'}} title="拖曳排序"><GripVertical size={16}/></button>
+                            <p className="text-[#B91C1C] font-serif font-bold text-sm tracking-widest">{spot.time}</p>
+                          </div>
+                          <div className="flex gap-1">
+                            <button onClick={() => setEditing({...spot})} className="text-slate-300 hover:text-[#1B2B5D] p-1 active:scale-125 transition-transform"><Edit2 size={14}/></button>
+                            <button onClick={() => deleteSpot(spot.id)} className="text-slate-200 hover:text-red-500 p-1 active:scale-125 transition-transform"><Trash2 size={14}/></button>
+                          </div>
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-800 leading-tight">{spot.name}</h3>
+                        <p className="text-xs text-slate-500 mb-4 whitespace-pre-wrap">{spot.note}</p>
+                        <div className="flex flex-col items-end gap-1.5">
+                          {spot.mapcode && <div className="flex items-center gap-1 bg-[#FDFBF7] border border-[#E9E1D3] px-2 py-0.5 rounded text-[#5A4D3D] shadow-inner"><Hash size={10} className="text-[#D1A44B]"/><span className="text-[10px] font-bold tracking-tight uppercase" style={{fontFamily:MS_JH}}>MC: {spot.mapcode}</span></div>}
+                          <div className="flex gap-2 w-full justify-end">
+                            {spot.attachment && <button onClick={() => setAttachment(spot.attachment)} className="bg-blue-600 text-white text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold shadow-sm active:scale-95"><Paperclip size={12}/> 查看附件</button>}
+                            <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(spot.name+' '+settings.title)}`} target="_blank" rel="noopener noreferrer" className="bg-[#F8F3E9] text-[#5A4D3D] text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold border border-[#E9E1D3] active:scale-95 shadow-sm h-[28px]"><Navigation size={12}/> Google 導航</a>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <button onClick={() => setShowAdd(true)} className="w-full py-5 border-2 border-dashed border-[#E9E1D3] rounded-xl flex flex-col items-center justify-center gap-1 active:bg-[#F8F3E9] transition-colors font-black text-[10px] tracking-widest text-[#B91C1C]">ADD STOP TO DAY {activeDay}</button>
+                </div>
+              </div>
+            )}
+
+            {/* MONEY */}
+            {activeTab === 'expenses' && (
+              <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-300">
+                <div className="bg-white p-4 rounded-2xl border border-[#E9E1D3] shadow-sm text-center">
+                  <h3 className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-3 italic">Live Exchange Converter</h3>
+                  <div className="flex items-center justify-center gap-3">
+                    <div className="flex-1">
+                      <p className="text-[9px] font-bold text-[#B91C1C] mb-1 uppercase font-black tracking-widest">{cur.name} {cur.symbol}</p>
+                      <input type="number" className="w-full text-xl font-serif font-bold bg-[#F8F3E9] p-2 rounded-xl outline-none text-center border-b-2 border-transparent focus:border-[#B91C1C]" value={convA} onChange={e => { setConvA(e.target.value); setConvB(e.target.value ? (parseFloat(e.target.value)*exchangeRate).toFixed(0) : ''); }} />
+                    </div>
+                    <RefreshCw size={14} className="text-slate-200 mt-4"/>
+                    <div className="flex-1">
+                      <p className="text-[9px] font-bold text-[#1B2B5D] mb-1 uppercase font-black tracking-widest">台幣 $</p>
+                      <input type="number" className="w-full text-xl font-serif font-bold bg-[#F8F3E9] p-2 rounded-xl outline-none text-center text-[#1B2B5D] border-b-2 border-transparent focus:border-[#1B2B5D]" value={convB} onChange={e => { setConvB(e.target.value); setConvA(e.target.value ? (parseFloat(e.target.value)/exchangeRate).toFixed(0) : ''); }} />
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-[#1B2B5D] px-4 py-3 rounded-xl text-white shadow-xl relative overflow-hidden flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-0.5"><Lock size={9} className="opacity-60"/><p className="text-[8px] opacity-60 font-black tracking-widest uppercase">Total Spending · 個人</p></div>
+                    <h2 className="text-2xl font-serif font-bold tracking-tight leading-none">NT$ {expenses.reduce((s,e)=>s+(e.twd||0),0).toLocaleString()}</h2>
+                  </div>
+                  <Wallet size={36} className="opacity-10 absolute -right-2 -top-1 rotate-12"/>
+                </div>
+                <div className="bg-white p-4 rounded-2xl border border-[#E9E1D3] space-y-3 shadow-sm">
+                  <div className="flex items-center gap-1.5 text-slate-400">
+                    <Lock size={11}/><span className="text-[9px] font-black uppercase tracking-widest leading-none">記帳僅存本機，不與旅伴同步</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <input type="date" className="bg-[#F8F3E9] p-2.5 rounded-xl text-xs outline-none font-bold text-[#5A4D3D] border border-transparent focus:border-[#D1A44B] shrink-0" value={newExp.date} onChange={e=>setNewExp({...newExp,date:e.target.value})}/>
+                    <input type="text" placeholder="品名" className="flex-1 min-w-0 bg-[#F8F3E9] p-2.5 rounded-xl text-xs outline-none font-bold border border-transparent focus:border-[#D1A44B]" value={newExp.note} onChange={e=>setNewExp({...newExp,note:e.target.value})} onKeyDown={e=>e.key==='Enter'&&addExpense()}/>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <input type="number" placeholder="金額" className="w-full bg-[#F8F3E9] p-2.5 rounded-xl text-xs outline-none font-bold text-[#B91C1C] pr-6" value={newExp.jpy} onChange={e=>setNewExp({...newExp,jpy:e.target.value})} onKeyDown={e=>e.key==='Enter'&&addExpense()}/>
+                      <span className="absolute right-3 top-2.5 text-[10px] text-[#B91C1C] font-bold">{cur.symbol}</span>
+                    </div>
+                    <button onClick={addExpense} className="bg-[#B91C1C] text-white px-5 rounded-xl shadow-md active:scale-95 transition-transform flex items-center gap-1 font-black text-xs uppercase"><Plus size={18}/> 記帳</button>
+                  </div>
+                  <div className="space-y-3 max-h-[340px] overflow-y-auto no-scrollbar pt-2 border-t border-[#F8F3E9]">
+                    {expenseGroups.length === 0 && <p className="text-center text-[10px] text-slate-300 py-6 italic">尚無記帳紀錄</p>}
+                    {expenseGroups.map(group => (
+                      <div key={group.date}>
+                        <div className="flex justify-between items-center px-1 mb-1 sticky top-0 bg-white py-1 z-10">
+                          <div className="flex items-center gap-1.5"><Calendar size={11} className="text-[#D1A44B]"/><span className="text-[10px] font-black text-[#5A4D3D] uppercase tracking-wider">{fmtDate(group.date)}</span></div>
+                          <span className="text-[10px] font-bold text-[#1B2B5D]">NT$ {group.total.toLocaleString()}</span>
+                        </div>
+                        <div className="space-y-0.5">
+                          {group.items.map(e => (
+                            <div key={e.id} className="py-2 px-1 flex justify-between items-center group border-b border-[#F8F3E9] last:border-0 hover:bg-[#FDFBF7] rounded-lg transition-colors">
+                              <div className="min-w-0 flex-1"><p className="font-bold text-[#5A4D3D] text-xs truncate">{e.note || '（未命名）'}</p><p className="text-[8px] text-slate-300 font-serif italic uppercase tracking-tighter">{e.currency} {(e.jpy||0).toLocaleString()} · {e.time}</p></div>
+                              <div className="flex items-center gap-3 text-right shrink-0">
+                                <p className="font-bold text-[#1B2B5D] text-xs tracking-tight">NT$ {(e.twd||0).toLocaleString()}</p>
+                                <button onClick={() => saveExpenses(expenses.filter(x=>x.id!==e.id))} className="text-slate-200 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={12}/></button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* CHECK */}
+            {activeTab === 'lists' && (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                <section className="bg-white rounded-[1.5rem] border border-[#E9E1D3] p-5 shadow-sm">
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-serif font-bold text-xl text-[#1B2B5D] flex items-center gap-2 tracking-tight uppercase font-black"><ListChecks size={22} className="text-[#D1A44B]"/> CHECKLIST</h3>
+                    <span className="text-[10px] text-slate-200 font-bold bg-[#F8F3E9] px-2 py-0.5 rounded-full uppercase font-black">ITEMS: {packingList.length}</span>
+                  </div>
+                  <div className="flex gap-2 mb-6">
+                    <input type="text" placeholder="快速新增待辦..." className="flex-1 bg-[#F8F3E9] p-3 rounded-2xl text-xs outline-none font-medium shadow-inner focus:ring-1 focus:ring-[#D1A44B]" value={newItem.name} onChange={e=>setNewItem({...newItem,name:e.target.value})} onKeyDown={e=>e.key==='Enter'&&(savePacking([...packingList,{id:uid(),...newItem,checked:false}]),setNewItem({...newItem,name:''}))}/>
+                    <button onClick={() => { if(!newItem.name)return; savePacking([...packingList,{id:uid(),...newItem,checked:false}]); setNewItem({...newItem,name:''}); showToast("已新增"); }} className="bg-[#1B2B5D] text-white p-3 rounded-2xl active:scale-95 shadow-md transition-transform"><Plus size={24}/></button>
+                  </div>
+                  <div className="space-y-1.5">
+                    {packingList.map(item => (
+                      <div key={item.id} onClick={() => savePacking(packingList.map(i=>i.id===item.id?{...i,checked:!i.checked}:i))} className="py-2.5 px-4 flex items-center gap-3 cursor-pointer bg-white border border-[#F8F3E9] rounded-2xl shadow-sm hover:bg-[#FDFBF7] transition-all group">
+                        {item.checked ? <CheckCircle size={22} className="text-[#1B2B5D] shrink-0"/> : <Circle size={22} className="text-slate-200 shrink-0"/>}
+                        <span className={`text-[12px] flex-1 font-bold truncate ${item.checked ? 'line-through text-slate-300 font-normal' : 'text-[#5A4D3D]'}`}>{item.name}</span>
+                        <button onClick={e=>{e.stopPropagation(); savePacking(packingList.filter(i=>i.id!==item.id));}} className="text-slate-100 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+                <section className="bg-white rounded-[1.5rem] border border-[#E9E1D3] p-5 shadow-sm">
+                  <h3 className="font-serif font-bold text-xl text-[#B91C1C] mb-4 flex items-center gap-2 tracking-tight uppercase font-black"><ShoppingBasket size={22}/> RECOMMENDED</h3>
+                  <div className="flex gap-2 mb-4">
+                    <input type="text" placeholder="新增推薦項目..." className="flex-1 bg-[#F8F3E9] p-3 rounded-2xl text-xs outline-none font-medium shadow-inner" value={newGift} onChange={e=>setNewGift(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&newGift){saveGifts([...gifts,{id:uid(),name:newGift}]);setNewGift('');}}}/>
+                    <button onClick={()=>{if(!newGift)return; saveGifts([...gifts,{id:uid(),name:newGift}]); setNewGift('');}} className="bg-[#B91C1C] text-white p-3 rounded-2xl active:scale-95 shadow-md transition-transform"><Plus size={22}/></button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {gifts.map(g => (
+                      <div key={g.id} className="bg-[#F8F3E9] p-2.5 rounded-xl flex items-center justify-between group active:scale-95 transition-all">
+                        <span className="text-[10px] font-bold text-[#5A4D3D] truncate pr-1">{g.name}</span>
+                        <button onClick={() => { savePacking([...packingList,{id:uid(),name:g.name,category:'購物',checked:false}]); showToast('已加入清單'); }} className="text-[#B91C1C] p-1 active:scale-125 transition-transform"><Plus size={16}/></button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              </div>
+            )}
+
+            {/* TRANS */}
+            {activeTab === 'transport' && (
+              <div className="space-y-4 animate-in fade-in duration-300">
+                <div className="bg-white border border-[#E9E1D3] rounded-[1.5rem] shadow-sm p-4 text-center">
+                  <h3 className="font-serif font-bold text-lg text-[#1B2B5D] flex items-center gap-2 mb-4 uppercase tracking-tight font-black leading-none"><Train size={20} className="text-[#B91C1C]"/> Yui Rail Map</h3>
+                  <div className="overflow-x-auto bg-[#FDFBF7] p-4 rounded-xl border border-[#F8F3E9] no-scrollbar">
+                    <div className="min-w-[500px] py-10 relative">
+                      <div className="absolute top-[50%] left-0 right-0 h-1 bg-[#B91C1C] -translate-y-1/2 opacity-20"></div>
+                      <div className="flex justify-between relative z-10 px-2">
+                        {MONORAIL.map((s,i) => (
+                          <div key={s.id} className="flex flex-col items-center relative" style={{width:'35px'}}>
+                            <div className={`w-2.5 h-2.5 rounded-full border-2 border-white shadow-sm ${s.key?'bg-[#1B2B5D] scale-125':'bg-[#B91C1C]'}`}></div>
+                            <div className={`absolute ${i%2===0?'top-4':'-top-8'} flex flex-col items-center w-20 text-center leading-tight`}>
+                              <span className={`text-[8px] font-bold whitespace-nowrap ${s.key?'text-[#1B2B5D]':'text-[#5A4D3D]'}`}>{s.name}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-[#FDFBF7] border border-[#E9E1D3] rounded-[2.5rem] shadow-sm p-6 space-y-6">
+                  <h3 className="font-serif font-bold text-xl text-[#1B2B5D] flex items-center gap-3 tracking-tight uppercase font-black italic leading-none"><Car size={26} className="text-[#B91C1C]"/> 租車自駕注意事項</h3>
+                  <div className="space-y-3">
+                    {[
+                      [ShieldCheck,"text-blue-500","保險規劃：","如預算許可建議全保，至少得保「免責賠償」。"],
+                      [Fuel,"text-red-500","還車加油：","務必加滿油，通常加當地的推薦油種 (如日本紅色92)。"],
+                      [Baby,"text-amber-500","安全座椅：","6 歲以下孩童通常必須乘坐安全座椅，請務必租借。"],
+                      [ParkingCircle,"text-[#1B2B5D]","推薦停車場：","多利用停車 APP 查看即時狀況與收費。"],
+                    ].map(([Icon,cls,title,body],i) => (
+                      <div key={i} className="bg-white p-3 rounded-2xl border border-slate-100 flex gap-4 items-start shadow-sm">
+                        <Icon size={20} className={`${cls} shrink-0 mt-0.5`}/>
+                        <p className="text-[12px] leading-relaxed text-[#5A4D3D]"><strong>{title}</strong>{body}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TIPS */}
+            {activeTab === 'info' && (
+              <div className="space-y-4 animate-in slide-in-from-right-4 duration-300">
+                <div className="bg-[#1B2B5D] p-4 rounded-[2rem] text-white shadow-2xl">
+                  <h3 className="font-serif font-bold text-xl mb-3 uppercase tracking-tight italic border-b border-white/10 pb-2 leading-none text-amber-50 font-black tracking-[0.1em]">SAFETY NOTICE</h3>
+                  <div className="space-y-2 text-[11px] opacity-90 leading-relaxed font-medium mb-4">
+                    {[[Car,"保持正確側通行。轉彎請記得當地口訣。"],[Zap,"當地電壓：請確認是否需要轉接頭。"],[AlertTriangle,"台灣駕照正本與譯本必帶。嚴禁酒駕。"]].map(([Icon,text],i) => (
+                      <div key={i} className="flex gap-3 items-center"><div className="bg-white/10 p-2 rounded-xl border border-white/5 shrink-0"><Icon size={18}/></div><p>{text}</p></div>
+                    ))}
+                  </div>
+                  <div className="pt-3 border-t border-white/10">
+                    <h4 className="text-[8px] font-black uppercase tracking-[0.2em] text-[#D1A44B] mb-2 leading-none">CUSTOM SAFETY NOTES</h4>
+                    <div className="space-y-1 mb-2 max-h-32 overflow-y-auto no-scrollbar">
+                      {safetyNotes.map(n => (
+                        <div key={n.id} className="flex items-center justify-between bg-white/5 p-2 rounded-xl border border-white/5 group">
+                          <span className="text-[10px] font-bold">{n.content}</span>
+                          <button onClick={() => saveSafety(safetyNotes.filter(x=>x.id!==n.id))} className="text-white/20 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={10}/></button>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input type="text" placeholder="新增備註..." className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-[10px] outline-none focus:ring-1 focus:ring-[#D1A44B] placeholder:text-white/20 shadow-inner" value={newSafety} onChange={e=>setNewSafety(e.target.value)} onKeyDown={e=>e.key==='Enter'&&newSafety&&(saveSafety([...safetyNotes,{id:uid(),content:newSafety}]),setNewSafety(''))}/>
+                      <button onClick={()=>{if(!newSafety)return; saveSafety([...safetyNotes,{id:uid(),content:newSafety}]); setNewSafety('');}} className="bg-white text-[#1B2B5D] p-1.5 rounded-xl active:scale-90 shadow-xl transition-all flex items-center justify-center h-[32px] w-[32px]"><Plus size={16}/></button>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white border border-[#E9E1D3] p-4 rounded-2xl shadow-sm space-y-2">
+                  <h4 className="text-[10px] font-black text-slate-300 uppercase text-center mb-1 tracking-[0.3em] italic leading-none">EMERGENCY CONTACTS</h4>
+                  <div className="flex justify-between items-center p-2.5 bg-[#FDFBF7] rounded-xl border border-[#F8F3E9] shadow-inner"><span className="font-bold text-[11px] text-[#5A4D3D]">警察 (Police)</span><span className="text-[#B91C1C] font-serif font-black text-xl tracking-tighter">110</span></div>
+                  <div className="flex justify-between items-center p-2.5 bg-[#FDFBF7] rounded-xl border border-[#F8F3E9] shadow-inner"><span className="font-bold text-[11px] text-[#5A4D3D]">消防 / 救護</span><span className="text-[#B91C1C] font-serif font-black text-xl tracking-tighter">119</span></div>
+                  <div className="p-2.5 bg-[#FDFBF7] rounded-xl border border-[#F8F3E9] shadow-inner flex flex-col gap-1">
+                    <div className="flex justify-between items-center"><span className="font-bold text-[11px] text-[#5A4D3D]">Visitor Hotline</span><span className="text-[#1B2B5D] font-serif font-black text-lg tracking-tighter">050-3816-2787</span></div>
+                    <p className="text-[8px] text-slate-400 opacity-60 leading-none">日本旅遊緊急支援專線 (24h)</p>
+                  </div>
+                  <div className="pt-2 text-center border-t border-slate-50">
+                    <div className="bg-red-50 p-2 rounded-xl border border-red-100 w-full">
+                      <p className="text-[10px] font-bold text-[#B91C1C] opacity-80 italic mb-1.5 font-black leading-none">備註：請幫忙叫救護車 (日文)</p>
+                      <p className="text-base bg-white text-[#B91C1C] px-3 py-1.5 rounded-lg select-all font-bold border border-red-100 shadow-sm flex items-center justify-center min-h-[2.2rem]">救急車を呼んでください</p>
+                      <p className="text-[8px] text-slate-400 mt-1 italic opacity-70 leading-none">(Kyu-kyu-sha o yon-de ku-da-sai)</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </main>
+
+          {/* ── 房間 UI 彈窗 ── */}
+          {showRoomUI && (
+            <div className="absolute inset-0 z-[600] flex items-end justify-center bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="bg-white w-full max-w-md rounded-t-[2rem] p-6 shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+                <div className="flex justify-between items-center mb-5">
+                  <h3 className="text-lg font-serif font-bold text-[#1B2B5D] flex items-center gap-2 uppercase font-black leading-none"><Cloud size={20} className="text-[#D1A44B]"/> 共享行程</h3>
+                  <button onClick={() => setShowRoomUI(false)} className="bg-slate-100 p-2 rounded-full text-slate-400"><X size={18}/></button>
+                </div>
+
+                {syncMode ? (
+                  <div className="space-y-4">
+                    {/* 已在房間 */}
+                    <div className="bg-[#F8F3E9] rounded-2xl p-4 border border-[#E9E1D3]">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1 leading-none">目前房間代碼</p>
+                      <p className="text-3xl font-serif font-black text-[#1B2B5D] tracking-[0.15em] uppercase">{roomCode}</p>
+                      <div className={`flex items-center gap-1.5 mt-1 ${syncStatus==='online'?'text-emerald-500':'text-amber-500'}`}>
+                        {syncStatus==='online' ? <Wifi size={12}/> : <WifiOff size={12}/>}
+                        <span className="text-[9px] font-bold uppercase">{syncStatus==='online'?'已連線，即時同步中':'連線中...'}</span>
+                      </div>
+                    </div>
+                    <button onClick={copyLink} className={`w-full flex items-center justify-center gap-2 py-3 rounded-2xl font-black text-sm uppercase tracking-widest transition-all active:scale-95 ${copied ? 'bg-emerald-500 text-white' : 'bg-[#1B2B5D] text-white shadow-lg'}`}>
+                      {copied ? <><Check size={18}/> 已複製連結！</> : <><Link size={18}/> 複製分享連結</>}
+                    </button>
+                    <p className="text-[10px] text-slate-400 text-center leading-relaxed">將連結傳給旅伴，對方點開即可共同編輯</p>
+                    <button onClick={doLeaveRoom} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl font-black text-xs uppercase tracking-widest bg-slate-100 text-slate-500 active:scale-95 transition-all">
+                      <LogOut size={14}/> 退出共享，切換回本機模式
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* 未在房間 */}
+                    <button onClick={doCreateRoom} className="w-full bg-[#1B2B5D] text-white py-4 rounded-2xl font-black uppercase tracking-widest shadow-xl active:scale-95 transition-all flex items-center justify-center gap-2">
+                      <Plus size={20}/> 建立新共享房間
+                    </button>
+                    <div className="relative flex items-center gap-3">
+                      <div className="flex-1 h-px bg-[#E9E1D3]"></div>
+                      <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest">或加入現有房間</span>
+                      <div className="flex-1 h-px bg-[#E9E1D3]"></div>
+                    </div>
+                    <div className="flex gap-2">
+                      <input type="text" placeholder="輸入房間代碼..." className="flex-1 bg-[#F8F3E9] p-3 rounded-2xl text-sm font-bold outline-none border border-transparent focus:border-[#D1A44B] uppercase tracking-widest" value={codeInput} onChange={e=>setCodeInput(e.target.value.toUpperCase())} onKeyDown={e=>e.key==='Enter'&&doJoinRoom(codeInput)} maxLength={12}/>
+                      <button onClick={() => doJoinRoom(codeInput)} className="bg-[#D1A44B] text-white px-4 rounded-2xl font-black shadow-md active:scale-95 transition-all text-sm uppercase tracking-wider">加入</button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 text-center leading-relaxed">資料儲存在公共中繼伺服器<br/>知道房間代碼的人均可存取</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 編輯天數標題/摘要 */}
+          {editDayInfo && (
+            <div className="absolute inset-0 z-[600] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl border-4 border-[#D1A44B] animate-in zoom-in-95">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-serif font-bold uppercase font-black leading-none text-[#1B2B5D]">第 {editDayInfo.day} 天</h3>
+                  <button onClick={() => setEditDayInfo(null)} className="bg-slate-100 p-2 rounded-full text-slate-400"><X size={20}/></button>
+                </div>
+                <div className="space-y-4">
+                  <div><label className="text-[10px] font-black text-slate-400 mb-1 block uppercase tracking-widest leading-none">標題</label><input type="text" placeholder="例如：北部探索" className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-sm font-bold outline-none border border-transparent focus:border-[#D1A44B]" value={editDayInfo.title} onChange={e=>setEditDayInfo({...editDayInfo,title:e.target.value})}/></div>
+                  <div><label className="text-[10px] font-black text-slate-400 mb-1 block uppercase tracking-widest leading-none">摘要</label><textarea placeholder="本日行程概述..." className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-xs h-24 outline-none resize-none border border-transparent focus:border-[#D1A44B]" value={editDayInfo.summary} onChange={e=>setEditDayInfo({...editDayInfo,summary:e.target.value})}/></div>
+                  <button onClick={saveDayInfo} className="w-full bg-[#1B2B5D] text-white font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest leading-none">儲存</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 刪除天數確認 */}
+          {delDay !== null && (
+            <div className="absolute inset-0 z-[600] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl border-4 border-red-500 animate-in zoom-in-95 text-center">
+                <AlertTriangle size={48} className="text-red-500 mx-auto mb-4"/>
+                <h3 className="text-xl font-serif font-bold uppercase font-black leading-none text-[#1B2B5D] mb-2">刪除行程天數</h3>
+                <p className="text-sm text-slate-500 mb-6 font-bold">確定要刪除「第 {delDay} 天」？<br/><span className="text-xs text-red-500">此操作無法還原。</span></p>
+                <div className="flex gap-3">
+                  <button onClick={() => setDelDay(null)} className="flex-1 bg-slate-100 text-slate-600 font-black py-3 rounded-2xl active:scale-95 transition-all uppercase tracking-widest leading-none">取消</button>
+                  <button onClick={confirmDelDay} className="flex-1 bg-red-600 text-white font-black py-3 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest leading-none">確定刪除</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 設定彈窗 */}
+          {showCfg && (
+            <div className="absolute inset-0 z-[600] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl border-4 border-amber-400 animate-in zoom-in-95">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-serif font-bold uppercase font-black leading-none text-[#1B2B5D]">行程設定</h3>
+                  <button onClick={() => setShowCfg(false)} className="bg-slate-100 p-2 rounded-full text-slate-400"><X size={20}/></button>
+                </div>
+                <div className="space-y-4">
+                  <div><label className="text-[10px] font-black text-slate-400 mb-1 block uppercase tracking-widest leading-none">目的地</label><input type="text" className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-sm font-bold outline-none border border-transparent focus:border-amber-400" value={settings.title} onChange={e=>setSettings({...settings,title:e.target.value})}/></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><label className="text-[10px] font-black text-slate-400 mb-1 block">年份</label><input type="text" className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-sm font-bold outline-none border border-transparent focus:border-amber-400" value={settings.year} onChange={e=>setSettings({...settings,year:e.target.value})}/></div>
+                    <div><label className="text-[10px] font-black text-slate-400 mb-1 block">月份</label><input type="text" className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-sm font-bold outline-none border border-transparent focus:border-amber-400" value={settings.month} onChange={e=>setSettings({...settings,month:e.target.value})}/></div>
+                  </div>
+                  <div><label className="text-[10px] font-black text-slate-400 mb-1 block uppercase tracking-widest">貨幣</label>
+                    <select className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-sm font-bold outline-none border border-transparent focus:border-amber-400" value={settings.currency} onChange={e=>setSettings({...settings,currency:e.target.value})}>
+                      {CURRENCIES.map(c=><option key={c.code} value={c.code}>{c.code} - {c.name}</option>)}
+                    </select>
+                  </div>
+                  <button onClick={() => { saveSettings(settings); setShowCfg(false); showToast("設定已儲存"); }} className="w-full bg-[#1B2B5D] text-white font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest leading-none">儲存設定</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 附件圖片 */}
+          {attachment && (
+            <div className="fixed inset-0 z-[500] bg-black/95 flex flex-col items-center justify-center p-4 backdrop-blur-md animate-in fade-in">
+              <div className="w-full max-w-md flex justify-between items-center mb-4 text-white">
+                <h3 className="text-lg font-serif font-bold flex items-center gap-2 uppercase font-black leading-none"><Paperclip className="text-blue-400" size={20}/> 附件檢視</h3>
+                <button onClick={() => { setAttachment(null); setZoom(1); }} className="bg-white/10 p-2 rounded-full leading-none flex items-center justify-center"><X size={24}/></button>
+              </div>
+              <div className="relative w-full flex-1 overflow-hidden rounded-3xl bg-white/5 flex items-center justify-center border border-white/10 shadow-2xl">
+                <div className="w-full h-full overflow-auto no-scrollbar flex items-center justify-center">
+                  <img src={attachment} alt="Attachment" className="max-w-none transition-transform duration-200" style={{transform:`scale(${zoom})`,transformOrigin:'center center'}} onError={e=>{e.target.src="https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&q=80&w=1000";}}/>
+                </div>
+                <div className="absolute right-4 bottom-4 flex flex-col gap-2">
+                  <button onClick={() => setZoom(p=>Math.min(p+0.5,4))} className="bg-white text-slate-900 p-4 rounded-2xl shadow-2xl active:scale-90 transition-transform h-[56px] w-[56px] flex items-center justify-center"><ZoomIn size={26}/></button>
+                  <button onClick={() => setZoom(p=>Math.max(p-0.5,1))} className="bg-white text-slate-900 p-4 rounded-2xl shadow-2xl active:scale-90 transition-transform h-[56px] w-[56px] flex items-center justify-center"><ZoomOut size={26}/></button>
+                  <button onClick={() => setZoom(1)} className="bg-blue-600 text-white p-4 rounded-2xl shadow-2xl active:scale-90 transition-transform h-[56px] w-[56px] flex items-center justify-center"><Maximize2 size={26}/></button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 底部導覽 */}
+          <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white/95 backdrop-blur-xl border-t border-[#E9E1D3] flex justify-around p-1 pb-4 z-40">
+            {[
+              { id:'itinerary', icon:<MapPin size={18}/>,     label:'PLAN'  },
+              { id:'expenses',  icon:<Wallet size={18}/>,     label:'MONEY' },
+              { id:'lists',     icon:<ListChecks size={18}/>, label:'CHECK' },
+              { id:'transport', icon:<Train size={18}/>,      label:'TRANS' },
+              { id:'info',      icon:<Info size={18}/>,       label:'TIPS'  },
+            ].map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={`flex flex-col items-center gap-0.5 transition-all px-1.5 py-1 rounded-xl ${activeTab===tab.id ? 'text-[#1B2B5D] bg-[#1B2B5D]/5' : 'text-[#A69984]'}`}>
+                <div className={activeTab===tab.id ? 'scale-110 -translate-y-px transition-transform' : 'scale-100 transition-transform'}>{tab.icon}</div>
+                <span className="text-[6px] font-black tracking-[0.1em] uppercase leading-none">{tab.label}</span>
+              </button>
+            ))}
+          </nav>
+
+          {/* 新增/修改行程彈窗 */}
+          {(showAdd || editing) && (
+            <div className="absolute inset-0 z-[300] flex items-center justify-center p-6 bg-slate-900/60 backdrop-blur-md animate-in fade-in duration-300">
+              <div className={`bg-white w-full max-w-sm rounded-[2.5rem] p-8 shadow-2xl border-4 ${editing ? 'border-[#B91C1C]' : 'border-[#1B2B5D]'} animate-in zoom-in-95`}>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className={`text-xl font-serif font-bold uppercase font-black leading-none ${editing ? 'text-[#B91C1C]' : 'text-[#1B2B5D]'}`}>{editing ? '修改行程' : '新增行程'}</h3>
+                  <button onClick={() => { setShowAdd(false); setEditing(null); }} className="bg-slate-100 p-2 rounded-full text-slate-400 hover:text-red-500 transition-colors shadow-sm leading-none flex items-center justify-center"><X size={20}/></button>
+                </div>
+                <div className="space-y-4 overflow-y-auto max-h-[70vh] no-scrollbar">
+                  <div className="grid grid-cols-2 gap-3">
+                    <input type="time" className="bg-[#F8F3E9] p-3 rounded-2xl text-sm outline-none font-bold shadow-inner"
+                      value={editing ? editing.time : newSpot.time}
+                      onChange={e => editing ? setEditing({...editing,time:e.target.value}) : setNewSpot({...newSpot,time:e.target.value})}/>
+                    <select className="bg-[#F8F3E9] p-3 rounded-2xl text-sm outline-none font-bold text-[#5A4D3D] shadow-inner"
+                      value={editing ? editing.type : newSpot.type}
+                      onChange={e => editing ? setEditing({...editing,type:e.target.value}) : setNewSpot({...newSpot,type:e.target.value})}>
+                      <option value="view">景點</option><option value="food">美食</option><option value="shopping">購物</option>
+                      <option value="park">公園</option><option value="transport">交通</option><option value="hotel">住宿</option>
+                    </select>
+                  </div>
+                  <input type="text" placeholder="名稱" className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-sm font-bold outline-none border border-transparent focus:border-[#D1A44B] shadow-inner"
+                    value={editing ? editing.name : newSpot.name}
+                    onChange={e => editing ? setEditing({...editing,name:e.target.value}) : setNewSpot({...newSpot,name:e.target.value})}/>
+                  <div className="relative">
+                    <input type="text" placeholder="Mapcode" className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-sm font-bold outline-none border border-transparent focus:border-[#D1A44B] pl-10 shadow-inner"
+                      style={{fontFamily:MS_JH}}
+                      value={editing ? (editing.mapcode||'') : newSpot.mapcode}
+                      onChange={e => editing ? setEditing({...editing,mapcode:e.target.value}) : setNewSpot({...newSpot,mapcode:e.target.value})}/>
+                    <Hash size={16} className="absolute left-3 top-3.5 text-[#D1A44B]"/>
+                  </div>
+                  <textarea placeholder="備註內容..." className="w-full bg-[#F8F3E9] p-3 rounded-2xl text-xs h-20 outline-none resize-none shadow-inner"
+                    value={editing ? editing.note : newSpot.note}
+                    onChange={e => editing ? setEditing({...editing,note:e.target.value}) : setNewSpot({...newSpot,note:e.target.value})}/>
+
+                  <div className="space-y-2 bg-[#FDFBF7] p-3 rounded-2xl border border-[#E9E1D3]">
+                    <label className="text-[10px] font-black text-[#B91C1C] uppercase tracking-widest leading-none flex items-center gap-1"><Paperclip size={12}/> 附件 (圖片網址 / 本機圖片)</label>
+                    {(editing ? editing.attachment : newSpot.attachment) ? (
+                      <div className="relative inline-block w-full">
+                        <img src={editing ? editing.attachment : newSpot.attachment} className="h-24 w-full object-cover rounded-xl border border-[#E9E1D3]" alt="Preview"/>
+                        <button onClick={() => editing ? setEditing({...editing,attachment:''}) : setNewSpot({...newSpot,attachment:''})} className="absolute top-2 right-2 bg-black/60 text-white p-1.5 rounded-full backdrop-blur-sm hover:bg-red-500 transition-colors"><X size={14}/></button>
+                      </div>
+                    ) : (
+                      <div className="flex gap-2 items-center">
+                        <input type="text" placeholder="貼上圖片網址..." className="flex-1 bg-white p-2.5 rounded-xl text-xs outline-none border border-[#E9E1D3] focus:border-[#D1A44B] shadow-inner"
+                          value={(editing ? editing.attachment : newSpot.attachment) || ''}
+                          onChange={e => editing ? setEditing({...editing,attachment:e.target.value}) : setNewSpot({...newSpot,attachment:e.target.value})}/>
+                        <span className="text-[10px] text-slate-300 font-bold uppercase shrink-0">OR</span>
+                        <label className="bg-[#1B2B5D] text-white px-3 py-2.5 rounded-xl cursor-pointer hover:bg-blue-700 transition-colors flex items-center justify-center shrink-0 shadow-md">
+                          <ImagePlus size={16}/>
+                          <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, editing ? setEditing : setNewSpot, editing || newSpot)}/>
+                        </label>
+                      </div>
+                    )}
+                  </div>
+
+                  <button onClick={editing ? saveEditSpot : addSpot}
+                    className={`w-full ${editing?'bg-[#B91C1C]':'bg-[#1B2B5D]'} text-white font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest leading-none h-[48px] flex items-center justify-center`}>
+                    {editing ? '確認修改' : '儲存行程點'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
