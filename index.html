@@ -195,6 +195,7 @@
       const [showRoomUI,  setShowRoomUI]  = useState(false);
       const [codeInput,   setCodeInput]   = useState('');
       const [copied,      setCopied]      = useState(false);
+      const [pendingJoin, setPendingJoin] = useState(null); // { code, hasData, checking }
 
       // ── 資料狀態 ──
       const [itinerary,   setItinerary]   = useState(() => lsGet(LS.itinerary, DEFAULT_ITINERARY));
@@ -289,27 +290,41 @@
       const saveSettings    = d => save('settings',  LS.settings,  setSettings,    d);
 
       // ── 加入 / 離開房間 ──
-      const doJoinRoom = (code) => {
-        const c = code.trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
-        if (!c) return;
+      // 把目前本機資料推送到房間（建立新房間 / 加入空房間時用）
+      const pushLocalToRoom = () => {
+        gunPut('itinerary', itinerary);
+        gunPut('packing',   packingList);
+        gunPut('gifts',     gifts);
+        gunPut('safety',    safetyNotes);
+        gunPut('settings',  settings);
+      };
+
+      // 正式加入房間（已確認）。isNew=true 代表空房間，需上傳本機資料當起始
+      const enterRoom = (c, isNew) => {
         setRoomCode(c);
         setSyncMode(true);
         window.location.hash = c;
         setShowRoomUI(false);
+        setPendingJoin(null);
         showToast(`已加入房間 ${c}`);
-        // 推送目前本機資料到 Gun（初次加入時）
-        setTimeout(() => {
-          gunPut('itinerary', itinerary);
-          gunPut('packing',   packingList);
-          gunPut('gifts',     gifts);
-          gunPut('safety',    safetyNotes);
-          gunPut('settings',  settings);
-        }, 500);
+        if (isNew) setTimeout(pushLocalToRoom, 600); // 只有空房間才推送，避免覆蓋旅伴資料
       };
 
+      // 點「加入」：先偵測房間是否已有資料，再決定彈窗內容
+      const doJoinRoom = (code) => {
+        const c = code.trim().toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12);
+        if (!c) return;
+        setPendingJoin({ code: c, checking: true });
+        let done = false;
+        const finish = (hasData) => { if (!done) { done = true; setPendingJoin({ code: c, hasData }); } };
+        getGun().get(ROOM_PREFIX + c).get('itinerary').once(v => finish(!!v));
+        setTimeout(() => finish(false), 1800); // 逾時視為空房間
+      };
+
+      // 建立新房間：代碼為隨機，必為空，直接加入並上傳本機資料
       const doCreateRoom = () => {
         const c = Math.random().toString(36).slice(2, 8);
-        doJoinRoom(c);
+        enterRoom(c, true);
       };
 
       const doLeaveRoom = () => {
@@ -814,6 +829,42 @@
                     </div>
                     <p className="text-[10px] text-slate-400 text-center leading-relaxed">資料儲存在公共中繼伺服器<br/>知道房間代碼的人均可存取</p>
                   </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* 加入房間衝突確認 */}
+          {pendingJoin && (
+            <div className="absolute inset-0 z-[700] flex items-center justify-center p-6 bg-slate-900/70 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl border-4 border-[#1B2B5D] animate-in zoom-in-95 text-center">
+                {pendingJoin.checking ? (
+                  <>
+                    <RefreshCw size={40} className="text-[#1B2B5D] mx-auto mb-4 animate-spin" />
+                    <p className="text-sm font-bold text-slate-500">正在偵測房間 <span className="uppercase tracking-widest text-[#1B2B5D]">{pendingJoin.code}</span>...</p>
+                  </>
+                ) : pendingJoin.hasData ? (
+                  <>
+                    <Cloud size={44} className="text-[#D1A44B] mx-auto mb-3" />
+                    <h3 className="text-xl font-serif font-bold uppercase font-black leading-none text-[#1B2B5D] mb-2">加入現有房間</h3>
+                    <p className="text-sm text-slate-500 mb-1 font-bold">房間「<span className="uppercase tracking-widest text-[#B91C1C]">{pendingJoin.code}</span>」已有共享行程</p>
+                    <p className="text-xs text-slate-400 mb-6 leading-relaxed">加入後將<b className="text-[#1B2B5D]">載入房間的內容</b>，您目前畫面的規劃不會上傳到房間。</p>
+                    <div className="flex gap-3">
+                      <button onClick={() => setPendingJoin(null)} className="flex-1 bg-slate-100 text-slate-600 font-black py-3 rounded-2xl active:scale-95 transition-all uppercase tracking-widest leading-none">取消</button>
+                      <button onClick={() => enterRoom(pendingJoin.code, false)} className="flex-1 bg-[#1B2B5D] text-white font-black py-3 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest leading-none">載入並加入</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Cloud size={44} className="text-[#1B2B5D] mx-auto mb-3" />
+                    <h3 className="text-xl font-serif font-bold uppercase font-black leading-none text-[#1B2B5D] mb-2">加入房間</h3>
+                    <p className="text-sm text-slate-500 mb-1 font-bold">房間「<span className="uppercase tracking-widest text-[#B91C1C]">{pendingJoin.code}</span>」目前偵測不到資料</p>
+                    <p className="text-xs text-slate-400 mb-6 leading-relaxed">加入後您接下來的<b className="text-[#1B2B5D]">編輯會即時同步</b>到房間。若這是旅伴已建立的房間，稍候即會載入內容；<b className="text-[#1B2B5D]">不會覆蓋</b>房間既有資料。</p>
+                    <div className="flex gap-3">
+                      <button onClick={() => setPendingJoin(null)} className="flex-1 bg-slate-100 text-slate-600 font-black py-3 rounded-2xl active:scale-95 transition-all uppercase tracking-widest leading-none">取消</button>
+                      <button onClick={() => enterRoom(pendingJoin.code, false)} className="flex-1 bg-[#1B2B5D] text-white font-black py-3 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest leading-none">加入</button>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
