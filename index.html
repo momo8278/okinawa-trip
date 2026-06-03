@@ -314,7 +314,7 @@
       const save = useCallback((key, lsKey, setter, data) => {
         setter(data);
         lsSet(lsKey, data);
-        if (syncMode && roomNode) {
+        if (syncMode && roomRef) {
           syncRef.current = true;
           gunPut(key, data);
           setTimeout(() => { syncRef.current = false; }, 300);
@@ -446,7 +446,7 @@
       const commitItinerary = () => {
         const data = itinRef.current;
         lsSet(LS.itinerary, data);
-        if (syncMode && roomNode) { syncRef.current = true; gunPut('itinerary', data); setTimeout(() => { syncRef.current = false; }, 300); }
+        if (syncMode && roomRef) { syncRef.current = true; gunPut('itinerary', data); setTimeout(() => { syncRef.current = false; }, 300); }
       };
 
       const moveSpot = (fromId, toIndex) => setItinerary(prev => {
