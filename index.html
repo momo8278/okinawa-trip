@@ -255,6 +255,7 @@
       const [delDay,     setDelDay]     = useState(null);
       const [newSpot,    setNewSpot]    = useState({ time:"10:00", name:'', note:'', isIndoor:false, type:'view', mapcode:'', attachments:[] });
       const [attachUrlInput, setAttachUrlInput] = useState('');
+      const [showExpList, setShowExpList] = useState(true);
       const [newExp,     setNewExp]     = useState({ note:'', jpy:'', date: todayStr(), pay:'cash' });
       const [editDayInfo,setEditDayInfo]= useState(null);
       const [dragId,     setDragId]     = useState(null);
@@ -749,7 +750,11 @@
                     </div>
                     <button onClick={addExpense} className="bg-[#B91C1C] text-white px-5 rounded-xl shadow-md active:scale-95 transition-transform flex items-center gap-1 font-black text-xs uppercase"><Plus size={18}/> 記帳</button>
                   </div>
-                  <div className="space-y-3 max-h-[340px] overflow-y-auto no-scrollbar pt-2 border-t border-[#F8F3E9]">
+                  <button onClick={()=>setShowExpList(!showExpList)} className="w-full flex items-center justify-between pt-3 border-t border-[#F8F3E9] active:opacity-70 transition-opacity">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">支出明細（{expenses.length} 筆）</span>
+                    <ChevronDown size={16} className={`text-slate-400 transition-transform ${showExpList ? 'rotate-180' : ''}`}/>
+                  </button>
+                  <div className={`space-y-3 max-h-[340px] overflow-y-auto no-scrollbar ${showExpList ? '' : 'hidden'}`}>
                     {expenseGroups.length === 0 && <p className="text-center text-[10px] text-slate-300 py-6 italic">尚無記帳紀錄</p>}
                     {expenseGroups.map(group => (
                       <div key={group.date}>
@@ -787,12 +792,12 @@
                     <input type="text" placeholder="快速新增待辦..." className="flex-1 bg-[#F8F3E9] p-3 rounded-2xl text-xs outline-none font-medium shadow-inner focus:ring-1 focus:ring-[#D1A44B]" value={newItem.name} onChange={e=>setNewItem({...newItem,name:e.target.value})} onKeyDown={e=>e.key==='Enter'&&(savePacking([...packingList,{id:uid(),...newItem,checked:false}]),setNewItem({...newItem,name:''}))}/>
                     <button onClick={() => { if(!newItem.name)return; savePacking([...packingList,{id:uid(),...newItem,checked:false}]); setNewItem({...newItem,name:''}); showToast("已新增"); }} className="bg-[#1B2B5D] text-white p-3 rounded-2xl active:scale-95 shadow-md transition-transform"><Plus size={24}/></button>
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="grid grid-cols-2 gap-1.5">
                     {packingList.map(item => (
-                      <div key={item.id} onClick={() => savePacking(packingList.map(i=>i.id===item.id?{...i,checked:!i.checked}:i))} className="py-2.5 px-4 flex items-center gap-3 cursor-pointer bg-white border border-[#F8F3E9] rounded-2xl shadow-sm hover:bg-[#FDFBF7] transition-all group">
-                        {item.checked ? <CheckCircle size={22} className="text-[#1B2B5D] shrink-0"/> : <Circle size={22} className="text-slate-200 shrink-0"/>}
-                        <span className={`text-[12px] flex-1 font-bold truncate ${item.checked ? 'line-through text-slate-300 font-normal' : 'text-[#5A4D3D]'}`}>{item.name}</span>
-                        <button onClick={e=>{e.stopPropagation(); savePacking(packingList.filter(i=>i.id!==item.id));}} className="text-slate-100 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={16}/></button>
+                      <div key={item.id} onClick={() => savePacking(packingList.map(i=>i.id===item.id?{...i,checked:!i.checked}:i))} className="py-2.5 px-3 flex items-center gap-2 cursor-pointer bg-white border border-[#F8F3E9] rounded-2xl shadow-sm hover:bg-[#FDFBF7] transition-all group">
+                        {item.checked ? <CheckCircle size={20} className="text-[#1B2B5D] shrink-0"/> : <Circle size={20} className="text-slate-200 shrink-0"/>}
+                        <span className={`text-[12px] flex-1 min-w-0 font-bold truncate ${item.checked ? 'line-through text-slate-300 font-normal' : 'text-[#5A4D3D]'}`}>{item.name}</span>
+                        <button onClick={e=>{e.stopPropagation(); savePacking(packingList.filter(i=>i.id!==item.id));}} className="text-slate-200 hover:text-red-400 p-0.5 shrink-0 transition-opacity"><Trash2 size={14}/></button>
                       </div>
                     ))}
                   </div>
@@ -808,7 +813,7 @@
                       <div key={g.id} className="bg-[#F8F3E9] p-2.5 rounded-xl flex items-center justify-between transition-all">
                         <span className="text-[10px] font-bold text-[#5A4D3D] truncate pr-1">{g.name}</span>
                         <div className="flex items-center gap-0.5 shrink-0">
-                          <button onClick={() => saveGifts(gifts.filter(x => x.id !== g.id))} className="text-slate-300 hover:text-red-500 p-1 active:scale-110 transition-transform"><X size={13}/></button>
+                          <button onClick={() => saveGifts(gifts.filter(x => x.id !== g.id))} className="text-slate-300 hover:text-red-500 p-1 active:scale-110 transition-transform"><Trash2 size={13}/></button>
                           <button onClick={() => { savePacking([...packingList,{id:uid(),name:g.name,category:'購物',checked:false}]); showToast('已加入清單'); }} className="text-[#B91C1C] p-1 active:scale-125 transition-transform"><Plus size={16}/></button>
                         </div>
                       </div>
