@@ -202,6 +202,10 @@
     // 比對用關鍵字（景點名含任一即視為可兌換）
     const FUNPASS_KEYWORDS = ['美麗海', 'DMM', 'Kariyushi', 'Little Universe', '名護動植物', '東南植物', '鳳梨園', '水果樂園', '恐龍', '萬座毛', '玉泉洞', '沖繩世界', '琉球村', '首里城', '勝連城', '兒童王國', '古宇利海洋塔', 'CAVE', '猿人之湯', '電動腳踏車', 'Triple Marine'];
     const isFunpassSpot = (name) => !!name && FUNPASS_KEYWORDS.some(k => name.includes(k));
+    // 取航班的登機 QR 陣列（相容舊的單張 qr 欄位）
+    const flightQrs = (f) => (f && (f.qrs || (f.qr ? [f.qr] : []))) || [];
+    // 取景點附件陣列（相容舊的單張 attachment 欄位）
+    const spotAttachments = (s) => (s && (s.attachments || (s.attachment ? [s.attachment] : []))) || [];
     const FUNPASS_MAP = 'https://cdn.fontrip.com/fontour/file/show/6KoVm/1200x800.jpg';
 
     const WeatherIcon = ({ code }) => {
@@ -249,7 +253,8 @@
       const [showCfg,    setShowCfg]    = useState(false);
       const [zoom,       setZoom]       = useState(1);
       const [delDay,     setDelDay]     = useState(null);
-      const [newSpot,    setNewSpot]    = useState({ time:"10:00", name:'', note:'', isIndoor:false, type:'view', mapcode:'', attachment:'' });
+      const [newSpot,    setNewSpot]    = useState({ time:"10:00", name:'', note:'', isIndoor:false, type:'view', mapcode:'', attachments:[] });
+      const [attachUrlInput, setAttachUrlInput] = useState('');
       const [newExp,     setNewExp]     = useState({ note:'', jpy:'', date: todayStr(), pay:'cash' });
       const [editDayInfo,setEditDayInfo]= useState(null);
       const [dragId,     setDragId]     = useState(null);
@@ -422,7 +427,8 @@
         });
         saveItinerary(updated);
         setShowAdd(false);
-        setNewSpot({ time:"10:00", name:'', note:'', isIndoor:false, type:'view', mapcode:'', attachment:'' });
+        setNewSpot({ time:"10:00", name:'', note:'', isIndoor:false, type:'view', mapcode:'', attachments:[] });
+        setAttachUrlInput('');
         showToast("行程已新增");
       };
 
@@ -609,7 +615,7 @@
                       <span className="text-xs font-bold text-[#5A4D3D] truncate">{itinerary.find(d=>d.day===activeDay)?.title}</span>
                     </div>
                     <div className="flex gap-2 shrink-0">
-                      <button onClick={() => { const d = itinerary.find(x=>x.day===activeDay); setEditDayInfo({ day:activeDay, title:d?.title||'', summary:d?.summary||'', flight:d?.flight||{} }); }} className="p-1 text-slate-300 hover:text-[#1B2B5D] transition-colors"><Edit2 size={16}/></button>
+                      <button onClick={() => { const d = itinerary.find(x=>x.day===activeDay); setEditDayInfo({ day:activeDay, title:d?.title||'', summary:d?.summary||'', flight:{ ...(d?.flight||{}), qrs: flightQrs(d?.flight), qr: undefined } }); }} className="p-1 text-slate-300 hover:text-[#1B2B5D] transition-colors"><Edit2 size={16}/></button>
                       <button onClick={() => setDelDay(activeDay)} className="p-1 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={16}/></button>
                       <button onClick={() => setRainyMode(!rainyMode)} className={`p-1 transition-colors ${rainyMode ? 'text-blue-500' : 'text-slate-300'}`}><CloudRain size={16}/></button>
                     </div>
@@ -641,10 +647,14 @@
                           <p className="text-xs font-black text-[#1B2B5D] tracking-tight">{f.arrTime}</p>
                         </div>
                       </div>
-                      {(f.pnr || f.qr) && (
-                        <div className="bg-[#FDFBF7] px-4 py-2 flex items-center justify-between border-t border-dashed border-[#E9E1D3]">
-                          {f.pnr ? <div className="flex items-center gap-1.5"><span className="text-[8px] text-slate-400 font-black uppercase tracking-widest">訂位</span><span className="text-xs font-black text-[#8E1E7E] tracking-widest select-all">{f.pnr}</span></div> : <span/>}
-                          {f.qr && <button onClick={()=>setAttachment(f.qr)} className="bg-[#8E1E7E] text-white text-[10px] px-3 py-1 rounded-lg flex items-center gap-1 font-bold active:scale-95 shadow-sm"><Paperclip size={11}/> 登機 QR</button>}
+                      {(f.pnr || flightQrs(f).length > 0) && (
+                        <div className="bg-[#FDFBF7] px-4 py-2 flex items-center justify-between gap-2 border-t border-dashed border-[#E9E1D3]">
+                          {f.pnr ? <div className="flex items-center gap-1.5 shrink-0"><span className="text-[8px] text-slate-400 font-black uppercase tracking-widest">訂位</span><span className="text-xs font-black text-[#8E1E7E] tracking-widest select-all">{f.pnr}</span></div> : <span/>}
+                          <div className="flex flex-wrap gap-1 justify-end">
+                            {flightQrs(f).map((q, i) => (
+                              <button key={i} onClick={()=>setAttachment(q)} className="bg-[#8E1E7E] text-white text-[10px] px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold active:scale-95 shadow-sm"><Paperclip size={11}/> QR{flightQrs(f).length>1 ? ' '+(i+1) : ''}</button>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
@@ -674,7 +684,7 @@
                         <div className="flex flex-col items-end gap-1.5">
                           {spot.mapcode && <div className="flex items-center gap-1 bg-[#FDFBF7] border border-[#E9E1D3] px-2 py-0.5 rounded text-[#5A4D3D] shadow-inner"><Hash size={10} className="text-[#D1A44B]"/><span className="text-[10px] font-bold tracking-tight uppercase" style={{fontFamily:MS_JH}}>MC: {spot.mapcode}</span></div>}
                           <div className="flex gap-2 w-full justify-end">
-                            {spot.attachment && <button onClick={() => setAttachment(spot.attachment)} className="bg-blue-600 text-white text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold shadow-sm active:scale-95"><Paperclip size={12}/> 查看附件</button>}
+                            {spotAttachments(spot).map((a, i) => <button key={i} onClick={() => setAttachment(a)} className="bg-blue-600 text-white text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold shadow-sm active:scale-95"><Paperclip size={12}/> 附件{spotAttachments(spot).length>1 ? ' '+(i+1) : ''}</button>)}
                             <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(spot.name+' '+settings.title)}`} target="_blank" rel="noopener noreferrer" className="bg-[#F8F3E9] text-[#5A4D3D] text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1 font-bold border border-[#E9E1D3] active:scale-95 shadow-sm h-[28px]"><Navigation size={12}/> Google 導航</a>
                           </div>
                         </div>
@@ -1097,17 +1107,22 @@
                       <input type="text" placeholder="抵達 06/05 12:20" className="bg-white p-2.5 rounded-xl text-xs outline-none border border-[#E9E1D3] focus:border-[#8E1E7E]" value={editDayInfo.flight?.arrTime||''} onChange={e=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, arrTime:e.target.value}})}/>
                     </div>
                     <input type="text" placeholder="訂位代號 92GD5H" className="w-full bg-white p-2.5 rounded-xl text-xs font-bold outline-none border border-[#E9E1D3] focus:border-[#8E1E7E] uppercase" value={editDayInfo.flight?.pnr||''} onChange={e=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, pnr:e.target.value}})}/>
-                    {editDayInfo.flight?.qr ? (
-                      <div className="flex items-center gap-2">
-                        <img src={editDayInfo.flight.qr} className="h-12 w-12 object-cover rounded-lg border border-[#E9E1D3]" alt="QR"/>
-                        <button onClick={()=>setEditDayInfo({...editDayInfo, flight:{...editDayInfo.flight, qr:''}})} className="text-[10px] text-red-500 font-bold">移除 QR</button>
+                    <div>
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">登機 QR（可多張，每位旅客一張）</label>
+                      <div className="flex flex-wrap gap-2">
+                        {(editDayInfo.flight?.qrs || []).map((q, i) => (
+                          <div key={i} className="relative">
+                            <button onClick={()=>setAttachment(q)} className="block"><img src={q} className="h-14 w-14 object-cover rounded-lg border border-[#E9E1D3]" alt={'QR'+(i+1)}/></button>
+                            <button onClick={()=>setEditDayInfo(prev=>({...prev, flight:{...prev.flight, qrs:(prev.flight.qrs||[]).filter((_,j)=>j!==i)}}))} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md active:scale-90"><X size={11}/></button>
+                          </div>
+                        ))}
+                        <label className="h-14 w-14 bg-white border-2 border-dashed border-[#E9E1D3] rounded-lg flex flex-col items-center justify-center gap-0.5 cursor-pointer hover:border-[#8E1E7E] text-slate-400 shrink-0">
+                          <ImagePlus size={16}/>
+                          <span className="text-[8px] font-bold">新增</span>
+                          <input type="file" accept="image/*" className="hidden" onChange={e=>{ const file=e.target.files[0]; if(!file)return; readCompressedImage(file, url=>setEditDayInfo(prev=>({...prev, flight:{...prev.flight, qrs:[...(prev.flight.qrs||[]), url]}}))); }}/>
+                        </label>
                       </div>
-                    ) : (
-                      <label className="w-full bg-white border border-dashed border-[#E9E1D3] rounded-xl py-2.5 text-[10px] font-bold text-slate-400 cursor-pointer hover:border-[#8E1E7E] flex items-center justify-center gap-1">
-                        <ImagePlus size={14}/> 上傳登機 QR 截圖
-                        <input type="file" accept="image/*" className="hidden" onChange={e=>{ const file=e.target.files[0]; if(!file)return; readCompressedImage(file, url=>setEditDayInfo(prev=>({...prev, flight:{...prev.flight, qr:url}}))); }}/>
-                      </label>
-                    )}
+                    </div>
                   </div>
 
                   <button onClick={saveDayInfo} className="w-full bg-[#1B2B5D] text-white font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest leading-none">儲存</button>
@@ -1229,24 +1244,39 @@
                     onChange={e => editing ? setEditing({...editing,note:e.target.value}) : setNewSpot({...newSpot,note:e.target.value})}/>
 
                   <div className="space-y-2 bg-[#FDFBF7] p-3 rounded-2xl border border-[#E9E1D3]">
-                    <label className="text-[10px] font-black text-[#B91C1C] uppercase tracking-widest leading-none flex items-center gap-1"><Paperclip size={12}/> 附件 (圖片網址 / 本機圖片)</label>
-                    {(editing ? editing.attachment : newSpot.attachment) ? (
-                      <div className="relative inline-block w-full">
-                        <img src={editing ? editing.attachment : newSpot.attachment} className="h-24 w-full object-cover rounded-xl border border-[#E9E1D3]" alt="Preview"/>
-                        <button onClick={() => editing ? setEditing({...editing,attachment:''}) : setNewSpot({...newSpot,attachment:''})} className="absolute top-2 right-2 bg-black/60 text-white p-1.5 rounded-full backdrop-blur-sm hover:bg-red-500 transition-colors"><X size={14}/></button>
-                      </div>
-                    ) : (
-                      <div className="flex gap-2 items-center">
-                        <input type="text" placeholder="貼上圖片網址..." className="flex-1 bg-white p-2.5 rounded-xl text-xs outline-none border border-[#E9E1D3] focus:border-[#D1A44B] shadow-inner"
-                          value={(editing ? editing.attachment : newSpot.attachment) || ''}
-                          onChange={e => editing ? setEditing({...editing,attachment:e.target.value}) : setNewSpot({...newSpot,attachment:e.target.value})}/>
-                        <span className="text-[10px] text-slate-300 font-bold uppercase shrink-0">OR</span>
-                        <label className="bg-[#1B2B5D] text-white px-3 py-2.5 rounded-xl cursor-pointer hover:bg-blue-700 transition-colors flex items-center justify-center shrink-0 shadow-md">
-                          <ImagePlus size={16}/>
-                          <input type="file" accept="image/*" className="hidden" onChange={e => handleImageUpload(e, editing ? setEditing : setNewSpot, editing || newSpot)}/>
-                        </label>
-                      </div>
-                    )}
+                    <label className="text-[10px] font-black text-[#B91C1C] uppercase tracking-widest leading-none flex items-center gap-1"><Paperclip size={12}/> 附件（可多張，圖片網址 / 本機圖片）</label>
+                    {(() => {
+                      const tgt = editing || newSpot;
+                      const atts = tgt.attachments || (tgt.attachment ? [tgt.attachment] : []);
+                      const updateAtts = (fn) => {
+                        const apply = (prev) => { const a = prev.attachments || (prev.attachment ? [prev.attachment] : []); return { ...prev, attachments: fn(a), attachment: undefined }; };
+                        editing ? setEditing(apply) : setNewSpot(apply);
+                      };
+                      return (
+                        <>
+                          {atts.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {atts.map((a, i) => (
+                                <div key={i} className="relative">
+                                  <button type="button" onClick={()=>setAttachment(a)} className="block"><img src={a} className="h-16 w-16 object-cover rounded-lg border border-[#E9E1D3]" alt={'附件'+(i+1)}/></button>
+                                  <button type="button" onClick={()=>updateAtts(a2 => a2.filter((_,j)=>j!==i))} className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center shadow-md active:scale-90"><X size={11}/></button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex gap-2 items-center">
+                            <input type="text" placeholder="貼上圖片網址..." className="flex-1 min-w-0 bg-white p-2.5 rounded-xl text-xs outline-none border border-[#E9E1D3] focus:border-[#D1A44B] shadow-inner"
+                              value={attachUrlInput} onChange={e=>setAttachUrlInput(e.target.value)}
+                              onKeyDown={e=>{ if(e.key==='Enter'&&attachUrlInput.trim()){ updateAtts(a=>[...a, attachUrlInput.trim()]); setAttachUrlInput(''); } }}/>
+                            <button type="button" onClick={()=>{ if(!attachUrlInput.trim())return; updateAtts(a=>[...a, attachUrlInput.trim()]); setAttachUrlInput(''); }} className="bg-[#D1A44B] text-white px-3 py-2.5 rounded-xl text-xs font-bold shrink-0 active:scale-95 shadow-md">加入</button>
+                            <label className="bg-[#1B2B5D] text-white px-3 py-2.5 rounded-xl cursor-pointer hover:bg-blue-700 transition-colors flex items-center justify-center shrink-0 shadow-md">
+                              <ImagePlus size={16}/>
+                              <input type="file" accept="image/*" className="hidden" onChange={e=>{ const f=e.target.files[0]; if(!f)return; readCompressedImage(f, url=>updateAtts(a=>[...a, url])); }}/>
+                            </label>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
 
                   <button onClick={editing ? saveEditSpot : addSpot}
