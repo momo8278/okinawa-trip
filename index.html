@@ -179,9 +179,13 @@
     ];
 
     const MONORAIL = [
-      { id:1, name:"那霸機場", key:true }, { id:2, name:"赤嶺" }, { id:3, name:"小祿" },
-      { id:4, name:"奧武山公園" }, { id:5, name:"縣廳前", key:true }, { id:6, name:"美榮橋", key:true },
-      { id:7, name:"牧志", key:true }, { id:8, name:"首里", key:true }, { id:9, name:"浦西", key:true },
+      { id:1,  name:"那霸機場", key:true }, { id:2,  name:"赤嶺" }, { id:3,  name:"小祿" },
+      { id:4,  name:"奧武山公園" }, { id:5,  name:"壺川" }, { id:6,  name:"旭橋" },
+      { id:7,  name:"縣廳前", key:true }, { id:8,  name:"美榮橋", key:true }, { id:9,  name:"牧志", key:true },
+      { id:10, name:"安里" }, { id:11, name:"歌町", key:true }, { id:12, name:"古島" },
+      { id:13, name:"市立醫院前" }, { id:14, name:"儀保" }, { id:15, name:"首里", key:true },
+      { id:16, name:"石嶺" }, { id:17, name:"經塚" }, { id:18, name:"浦添前田" },
+      { id:19, name:"浦西", key:true },
     ];
 
     const CURRENCIES = [
@@ -198,9 +202,10 @@
       '自然・動植物': ['名護動植物園', '東南植物樂園', '名護鳳梨園', '沖繩水果樂園', 'DINO 恐龍 PARK', '萬座毛'],
       '文化・古蹟':   ['沖繩世界(玉泉洞)', '琉球村', '首里城公園', '勝連城跡', '沖繩兒童王國', '古宇利海洋塔'],
       '體驗・活動':   ['CAVE OKINAWA 鐘乳洞', '南城溫泉 猿人之湯', '國際通 電動腳踏車', 'Triple Marine 水上活動'],
+      '餐飲・美食':   ['Blue Seal 冰淇淋', 'Yanbaru Gelato', '知花 Gelato', 'Zootons 漢堡', 'A&W', '燒肉 DOURAKU', '北海素材迴轉壽司', 'WaGyu Cafe', 'Hawaiian Cafe', '琉球 MARUMARO', 'Cafe R 下午茶', '古宇利島 海人 Seafood', 'VAMOS 精釀啤酒'],
     };
     // 比對用關鍵字（景點名含任一即視為可兌換）
-    const FUNPASS_KEYWORDS = ['美麗海', 'DMM', 'Kariyushi', 'Little Universe', '名護動植物', '東南植物', '鳳梨園', '水果樂園', '恐龍', '萬座毛', '玉泉洞', '沖繩世界', '琉球村', '首里城', '勝連城', '兒童王國', '古宇利海洋塔', 'CAVE', '猿人之湯', '電動腳踏車', 'Triple Marine'];
+    const FUNPASS_KEYWORDS = ['美麗海', 'DMM', 'Kariyushi', 'Little Universe', '名護動植物', '東南植物', '鳳梨園', '水果樂園', '恐龍', '萬座毛', '玉泉洞', '沖繩世界', '琉球村', '首里城', '勝連城', '兒童王國', '古宇利海洋塔', 'CAVE', '猿人之湯', '電動腳踏車', 'Triple Marine', 'Blue Seal', 'Yanbaru', 'Gelato', 'Zootons', 'A&W', 'DOURAKU', '迴轉壽司', 'WaGyu', 'Hawaiian Cafe', 'MARUMARO', '海人', 'VAMOS'];
     const isFunpassSpot = (name) => !!name && FUNPASS_KEYWORDS.some(k => name.includes(k));
     // 取航班的登機 QR 陣列（相容舊的單張 qr 欄位）
     const flightQrs = (f) => (f && (f.qrs || (f.qr ? [f.qr] : []))) || [];
@@ -230,6 +235,8 @@
       const [codeInput,   setCodeInput]   = useState('');
       const [copied,      setCopied]      = useState(false);
       const [pendingJoin, setPendingJoin] = useState(null); // { code, hasData, checking }
+      const [copiedRoom,  setCopiedRoom]  = useState(null);  // 複製後的新房間代碼
+      const [copying,     setCopying]     = useState(false);
 
       // ── 資料狀態 ──
       const [itinerary,   setItinerary]   = useState(() => lsGet(LS.itinerary, DEFAULT_ITINERARY));
@@ -397,6 +404,29 @@
       const copyLink = () => {
         const url = window.location.href.split('#')[0] + '#' + roomCode;
         navigator.clipboard.writeText(url).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+      };
+
+      // 將目前房間所有資料複製到一個新房間（記帳除外，本機資料）
+      const copyRoom = () => {
+        if (!fdb || copying) return;
+        setCopying(true);
+        setCopiedRoom(null);
+        const newCode = Math.random().toString(36).slice(2, 8);
+        const ref = fdb.ref('rooms/' + ROOM_PREFIX + newCode);
+        Promise.all([
+          ref.child('itinerary').set(JSON.stringify(itinerary)),
+          ref.child('packing').set(JSON.stringify(packingList)),
+          ref.child('gifts').set(JSON.stringify(gifts)),
+          ref.child('safety').set(JSON.stringify(safetyNotes)),
+          ref.child('settings').set(JSON.stringify(settings)),
+          ref.child('funpass').set(JSON.stringify(funpass)),
+        ]).then(() => {
+          setCopiedRoom(newCode);
+          setCopying(false);
+          const url = window.location.href.split('#')[0] + '#' + newCode;
+          navigator.clipboard.writeText(url).catch(() => {});
+          showToast('已複製到新房間 ' + newCode);
+        }).catch(() => { setCopying(false); showToast('複製失敗，請重試'); });
       };
 
       // ── 行程操作 ──
@@ -829,7 +859,7 @@
                 <div className="bg-white border border-[#E9E1D3] rounded-[1.5rem] shadow-sm p-4 text-center">
                   <h3 className="font-serif font-bold text-lg text-[#1B2B5D] flex items-center gap-2 mb-4 uppercase tracking-tight font-black leading-none"><Train size={20} className="text-[#B91C1C]"/> Yui Rail Map</h3>
                   <div className="overflow-x-auto bg-[#FDFBF7] p-4 rounded-xl border border-[#F8F3E9] no-scrollbar">
-                    <div className="min-w-[500px] py-10 relative">
+                    <div className="min-w-[860px] py-10 relative">
                       <div className="absolute top-[50%] left-0 right-0 h-1 bg-[#B91C1C] -translate-y-1/2 opacity-20"></div>
                       <div className="flex justify-between relative z-10 px-2">
                         {MONORAIL.map((s,i) => (
@@ -842,6 +872,29 @@
                         ))}
                       </div>
                     </div>
+                  </div>
+                  <p className="text-[9px] text-slate-400 mt-2 italic">← 左右滑動查看完整路線（共 19 站）</p>
+
+                  <div className="mt-4 pt-4 border-t border-[#F8F3E9] text-left">
+                    <h4 className="text-[10px] font-black text-[#1B2B5D] uppercase tracking-widest mb-2 flex items-center gap-1">票價資訊</h4>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="bg-[#FDFBF7] rounded-xl p-2.5 border border-[#F8F3E9] text-center">
+                        <p className="text-[8px] text-slate-400 font-black uppercase tracking-wider mb-0.5">單程</p>
+                        <p className="text-sm font-serif font-black text-[#B91C1C] leading-none">¥250<span className="text-[9px]">起</span></p>
+                        <p className="text-[8px] text-slate-400 mt-0.5">最遠 ¥390</p>
+                      </div>
+                      <div className="bg-[#FDFBF7] rounded-xl p-2.5 border border-[#F8F3E9] text-center">
+                        <p className="text-[8px] text-slate-400 font-black uppercase tracking-wider mb-0.5">一日券</p>
+                        <p className="text-sm font-serif font-black text-[#1B2B5D] leading-none">¥1,000</p>
+                        <p className="text-[8px] text-slate-400 mt-0.5">兒童 ¥500</p>
+                      </div>
+                      <div className="bg-[#FDFBF7] rounded-xl p-2.5 border border-[#F8F3E9] text-center">
+                        <p className="text-[8px] text-slate-400 font-black uppercase tracking-wider mb-0.5">二日券</p>
+                        <p className="text-sm font-serif font-black text-[#1B2B5D] leading-none">¥1,800</p>
+                        <p className="text-[8px] text-slate-400 mt-0.5">兒童 ¥900</p>
+                      </div>
+                    </div>
+                    <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">一日券 24 小時、二日券 48 小時內無限搭乘；6 歲以下兒童（每位大人限 2 名）免費。一天搭 3 趟以上通常買一日券較划算。</p>
                   </div>
                 </div>
                 <div className="bg-[#FDFBF7] border border-[#E9E1D3] rounded-[2.5rem] shadow-sm p-6 space-y-6">
@@ -1022,6 +1075,21 @@
                       {copied ? <><Check size={18}/> 已複製連結！</> : <><Link size={18}/> 複製分享連結</>}
                     </button>
                     <p className="text-[10px] text-slate-400 text-center leading-relaxed">將連結傳給旅伴，對方點開即可共同編輯</p>
+
+                    <div className="border-t border-[#E9E1D3] pt-3">
+                      <button onClick={copyRoom} disabled={copying} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl font-black text-xs uppercase tracking-widest bg-[#D1A44B] text-white active:scale-95 transition-all shadow-md disabled:opacity-60">
+                        {copying ? <><RefreshCw size={14} className="animate-spin"/> 複製中...</> : <><Copy size={14}/> 複製整個房間到新房間</>}
+                      </button>
+                      {copiedRoom && (
+                        <div className="mt-2 bg-[#F8F3E9] rounded-xl p-3 border border-[#E9E1D3] animate-in fade-in">
+                          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">新房間（連結已複製）</p>
+                          <p className="text-lg font-serif font-black text-[#8E1E7E] tracking-widest uppercase mb-2">{copiedRoom}</p>
+                          <button onClick={() => enterRoom(copiedRoom, false)} className="w-full bg-[#1B2B5D] text-white text-[11px] font-black py-2 rounded-lg active:scale-95 transition-all uppercase tracking-widest">前往新房間</button>
+                        </div>
+                      )}
+                      <p className="text-[10px] text-slate-400 text-center leading-relaxed mt-2">行程、清單、票券會複製過去；記帳是本機資料不會複製</p>
+                    </div>
+
                     <button onClick={doLeaveRoom} className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl font-black text-xs uppercase tracking-widest bg-slate-100 text-slate-500 active:scale-95 transition-all">
                       <LogOut size={14}/> 退出共享，切換回本機模式
                     </button>
